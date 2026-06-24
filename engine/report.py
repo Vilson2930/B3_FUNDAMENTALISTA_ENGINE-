@@ -1,11 +1,16 @@
 # ============================================================
 # report.py
 # B3 FUNDAMENTALISTA ENGINE
-# Relatório Executivo
+# Relatório Executivo + Arquivos
 # ============================================================
 
-def explicar_empresa(row):
+from pathlib import Path
 
+OUTPUT_DIR = Path("output")
+OUTPUT_DIR.mkdir(exist_ok=True)
+
+
+def explicar_empresa(row):
     motivos = []
 
     if row.get("roe", 0) >= 0.20:
@@ -32,62 +37,84 @@ def explicar_empresa(row):
     return ", ".join(motivos)
 
 
-def imprimir_ranking(titulo, df, coluna_score):
-
-    print()
-    print("=" * 80)
-    print(titulo)
-    print("=" * 80)
+def montar_bloco_ranking(titulo, df, coluna_score):
+    linhas = []
+    linhas.append("")
+    linhas.append("=" * 80)
+    linhas.append(titulo)
+    linhas.append("=" * 80)
 
     for i, (_, row) in enumerate(df.head(10).iterrows(), start=1):
-
-        print(
+        linhas.append(
             f"{i:02d} | {row['ticker']} | "
-            f"{row['empresa'][:45]} | "
+            f"{str(row['empresa'])[:45]} | "
             f"Score: {row[coluna_score]:.2f}"
         )
+        linhas.append(f"     Motivos: {explicar_empresa(row)}")
+        linhas.append("")
 
-        print(f"     Motivos: {explicar_empresa(row)}")
-        print()
+    return "\n".join(linhas)
 
 
 def gerar_relatorio(rankings):
-
-    print()
-    print("=" * 80)
-    print("RELATÓRIO EXECUTIVO — B3 FUNDAMENTALISTA ENGINE")
-    print("=" * 80)
-
     ranking_qualidade = rankings["qualidade"]
     ranking_crescimento = rankings["crescimento"]
     ranking_balanceado = rankings["balanceado"]
 
-    imprimir_ranking(
-        "TOP 10 — QUALIDADE ESTRUTURAL",
-        ranking_qualidade,
-        "score_qualidade"
+    texto = []
+    texto.append("=" * 80)
+    texto.append("RELATÓRIO EXECUTIVO — B3 FUNDAMENTALISTA ENGINE")
+    texto.append("=" * 80)
+
+    texto.append(
+        montar_bloco_ranking(
+            "TOP 10 — QUALIDADE ESTRUTURAL",
+            ranking_qualidade,
+            "score_qualidade"
+        )
     )
 
-    imprimir_ranking(
-        "TOP 10 — CRESCIMENTO",
-        ranking_crescimento,
-        "score_crescimento"
+    texto.append(
+        montar_bloco_ranking(
+            "TOP 10 — CRESCIMENTO",
+            ranking_crescimento,
+            "score_crescimento"
+        )
     )
 
-    imprimir_ranking(
-        "TOP 10 — BALANCEADO",
-        ranking_balanceado,
-        "score_balanceado"
+    texto.append(
+        montar_bloco_ranking(
+            "TOP 10 — BALANCEADO",
+            ranking_balanceado,
+            "score_balanceado"
+        )
     )
 
-    print()
-    print("=" * 80)
-    print("RESUMO EXECUTIVO")
-    print("=" * 80)
+    texto.append("")
+    texto.append("=" * 80)
+    texto.append("RESUMO EXECUTIVO")
+    texto.append("=" * 80)
+    texto.append(f"Empresas na base final: {len(rankings['base'])}")
+    texto.append(f"Melhor qualidade: {ranking_qualidade.iloc[0]['ticker']}")
+    texto.append(f"Melhor crescimento: {ranking_crescimento.iloc[0]['ticker']}")
+    texto.append(f"Melhor balanceado: {ranking_balanceado.iloc[0]['ticker']}")
+    texto.append("=" * 80)
 
-    print(f"Empresas na base final: {len(rankings['base'])}")
-    print(f"Melhor qualidade: {ranking_qualidade.iloc[0]['ticker']}")
-    print(f"Melhor crescimento: {ranking_crescimento.iloc[0]['ticker']}")
-    print(f"Melhor balanceado: {ranking_balanceado.iloc[0]['ticker']}")
+    relatorio = "\n".join(texto)
 
-    print("=" * 80)
+    print(relatorio)
+
+    # Salvar arquivos
+    (OUTPUT_DIR / "report.txt").write_text(relatorio, encoding="utf-8")
+
+    rankings["base"].to_csv(OUTPUT_DIR / "base_final.csv", index=False)
+    ranking_qualidade.to_csv(OUTPUT_DIR / "ranking_qualidade.csv", index=False)
+    ranking_crescimento.to_csv(OUTPUT_DIR / "ranking_crescimento.csv", index=False)
+    ranking_balanceado.to_csv(OUTPUT_DIR / "ranking_balanceado.csv", index=False)
+
+    print("\nArquivos salvos em /output:")
+    print("- report.txt")
+    print("- base_final.csv")
+    print("- ranking_qualidade.csv")
+    print("- ranking_crescimento.csv")
+    print("- ranking_balanceado.csv")
