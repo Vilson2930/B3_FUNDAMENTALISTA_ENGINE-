@@ -1,56 +1,31 @@
 # ============================================================
 # scoring.py
 # B3 FUNDAMENTALISTA ENGINE
-# Motor de Ranking
+# Motor de Ranking + Valuation
 # ============================================================
 
 import pandas as pd
 import numpy as np
 
-# ============================================================
-# SCORE PERCENTIL
-# ============================================================
+from engine.valuation import calcular_valuation, calcular_score_valuation
+
 
 def score_percentil(serie):
+    return serie.rank(pct=True, method="average") * 100
 
-    return (
-        serie.rank(
-            pct=True,
-            method="average"
-        ) * 100
-    )
 
-# ============================================================
-# LIMITADOR POR SETOR
-# ============================================================
-
-def limitar_por_setor(
-    df,
-    coluna_score,
-    limite_setor=3,
-    top_n=30
-):
-
+def limitar_por_setor(df, coluna_score, limite_setor=3, top_n=30):
     selecionadas = []
-
     contagem = {}
 
-    df = df.sort_values(
-        coluna_score,
-        ascending=False
-    )
+    df = df.sort_values(coluna_score, ascending=False)
 
     for _, row in df.iterrows():
-
         setor = row["setor"]
-
-        if setor not in contagem:
-            contagem[setor] = 0
+        contagem[setor] = contagem.get(setor, 0)
 
         if contagem[setor] < limite_setor:
-
             selecionadas.append(row)
-
             contagem[setor] += 1
 
         if len(selecionadas) >= top_n:
@@ -58,171 +33,83 @@ def limitar_por_setor(
 
     return pd.DataFrame(selecionadas)
 
-# ============================================================
-# QUALIDADE
-# ============================================================
 
 def calcular_score_qualidade(df):
-
     df = df.copy()
 
     df["score_qualidade"] = (
-
         score_percentil(df["roe"]) * 0.30 +
-
         score_percentil(df["roa"]) * 0.25 +
-
-        score_percentil(
-            df["margem_liquida"]
-        ) * 0.20 +
-
+        score_percentil(df["margem_liquida"]) * 0.20 +
         df["score_divida"] * 0.15 +
-
-        score_percentil(
-            np.log1p(df["market_cap"])
-        ) * 0.05 +
-
-        score_percentil(
-            np.log1p(df["volume"])
-        ) * 0.05
-
+        score_percentil(np.log1p(df["market_cap"])) * 0.05 +
+        score_percentil(np.log1p(df["volume"])) * 0.05
     )
 
     return df
 
-# ============================================================
-# CRESCIMENTO
-# ============================================================
 
 def calcular_score_crescimento(df):
-
     df = df.copy()
 
     df["score_crescimento"] = (
-
         df["score_crescimento_receita"] * 0.45 +
-
         df["score_crescimento_lucro"] * 0.45 +
-
         score_percentil(df["roe"]) * 0.10
-
     )
 
     return df
 
-# ============================================================
-# BALANCEADO
-# ============================================================
 
 def calcular_score_balanceado(df):
-
     df = df.copy()
 
     df["score_balanceado"] = (
-
-        df["score_qualidade"] * 0.70 +
-
-        df["score_crescimento"] * 0.30
-
+        df["score_qualidade"] * 0.40 +
+        df["score_crescimento"] * 0.30 +
+        df["score_valuation"] * 0.30
     )
 
     return df
 
-# ============================================================
-# RANKINGS
-# ============================================================
 
 def gerar_rankings(base):
-
     base = base.copy()
 
-    # --------------------------------------------------------
-    # CONTROLE OUTLIERS
-    # --------------------------------------------------------
+    base["crescimento_receita"] = (
+        base.get("crescimento_receita", 0)
+        .fillna(0)
+        .clip(-1, 2)
+    )
 
-    if "crescimento_receita" in base.columns:
+    base["crescimento_lucro"] = (
+        base.get("crescimento_lucro", 0)
+        .fillna(0)
+        .clip(-1, 2)
+    )
 
-        base[
-            "crescimento_receita"
-        ] = (
-            base["crescimento_receita"]
-            .clip(-1, 2)
-        )
+    base["score_divida"] = (
+        100 - score_percentil(base["divida_patrimonio"])
+        if "divida_patrimonio" in base.columns
+        else 50
+    )
 
-    if "crescimento_lucro" in base.columns:
+    base["score_crescimento_receita"] = score_percentil(
+        base["crescimento_receita"]
+    )
 
-        base[
-            "crescimento_lucro"
-        ] = (
-            base["crescimento_lucro"]
-            .clip(-1, 2)
-        )
+    base["score_crescimento_lucro"] = score_percentil(
+        base["crescimento_lucro"]
+    )
 
-    # --------------------------------------------------------
-    # SCORE DIVIDA
-    # --------------------------------------------------------
+    # Valuation
+    base = calcular_valuation(base)
+    base = calcular_score_valuation(base)
 
-    if "divida_patrimonio" in base.columns:
-
-        base["score_divida"] = (
-
-            100 -
-
-            score_percentil(
-                base["divida_patrimonio"]
-            )
-
-        )
-
-    else:
-
-        base["score_divida"] = 50
-
-    # --------------------------------------------------------
-    # SCORE CRESCIMENTO
-    # --------------------------------------------------------
-
-    if "crescimento_receita" in base.columns:
-
-        base[
-            "score_crescimento_receita"
-        ] = score_percentil(
-            base["crescimento_receita"]
-        )
-
-    else:
-
-        base[
-            "score_crescimento_receita"
-        ] = 50
-
-    if "crescimento_lucro" in base.columns:
-
-        base[
-            "score_crescimento_lucro"
-        ] = score_percentil(
-            base["crescimento_lucro"]
-        )
-
-    else:
-
-        base[
-            "score_crescimento_lucro"
-        ] = 50
-
-    # --------------------------------------------------------
-    # SCORES
-    # --------------------------------------------------------
-
+    # Scores principais
     base = calcular_score_qualidade(base)
-
     base = calcular_score_crescimento(base)
-
     base = calcular_score_balanceado(base)
-
-    # --------------------------------------------------------
-    # RANKINGS
-    # --------------------------------------------------------
 
     ranking_qualidade = limitar_por_setor(
         base,
@@ -238,6 +125,13 @@ def gerar_rankings(base):
         top_n=30
     )
 
+    ranking_valuation = limitar_por_setor(
+        base,
+        "score_valuation",
+        limite_setor=3,
+        top_n=30
+    )
+
     ranking_balanceado = limitar_por_setor(
         base,
         "score_balanceado",
@@ -246,13 +140,9 @@ def gerar_rankings(base):
     )
 
     return {
-
         "base": base,
-
         "qualidade": ranking_qualidade,
-
         "crescimento": ranking_crescimento,
-
+        "valuation": ranking_valuation,
         "balanceado": ranking_balanceado
-
     }
