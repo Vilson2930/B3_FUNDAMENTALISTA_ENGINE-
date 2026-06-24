@@ -31,6 +31,15 @@ def explicar_empresa(row):
     if row.get("crescimento_lucro", 0) >= 0.10:
         motivos.append("crescimento de lucro")
 
+    if row.get("ev_ebit", 999) <= 10:
+        motivos.append("EV/EBIT atrativo")
+
+    if row.get("pl_ratio", 999) <= 12:
+        motivos.append("P/L atrativo")
+
+    if row.get("pvp_ratio", 999) <= 2:
+        motivos.append("P/VP atrativo")
+
     if not motivos:
         motivos.append("bom equilíbrio fundamentalista")
 
@@ -50,7 +59,16 @@ def montar_bloco_ranking(titulo, df, coluna_score):
             f"{str(row['empresa'])[:45]} | "
             f"Score: {row[coluna_score]:.2f}"
         )
+
         linhas.append(f"     Motivos: {explicar_empresa(row)}")
+
+        if "pl_ratio" in row:
+            linhas.append(
+                f"     P/L: {row.get('pl_ratio', 0):.2f} | "
+                f"P/VP: {row.get('pvp_ratio', 0):.2f} | "
+                f"EV/EBIT: {row.get('ev_ebit', 0):.2f}"
+            )
+
         linhas.append("")
 
     return "\n".join(linhas)
@@ -59,6 +77,7 @@ def montar_bloco_ranking(titulo, df, coluna_score):
 def gerar_relatorio(rankings):
     ranking_qualidade = rankings["qualidade"]
     ranking_crescimento = rankings["crescimento"]
+    ranking_valuation = rankings["valuation"]
     ranking_balanceado = rankings["balanceado"]
 
     texto = []
@@ -84,6 +103,14 @@ def gerar_relatorio(rankings):
 
     texto.append(
         montar_bloco_ranking(
+            "TOP 10 — VALUATION",
+            ranking_valuation,
+            "score_valuation"
+        )
+    )
+
+    texto.append(
+        montar_bloco_ranking(
             "TOP 10 — BALANCEADO",
             ranking_balanceado,
             "score_balanceado"
@@ -97,6 +124,7 @@ def gerar_relatorio(rankings):
     texto.append(f"Empresas na base final: {len(rankings['base'])}")
     texto.append(f"Melhor qualidade: {ranking_qualidade.iloc[0]['ticker']}")
     texto.append(f"Melhor crescimento: {ranking_crescimento.iloc[0]['ticker']}")
+    texto.append(f"Melhor valuation: {ranking_valuation.iloc[0]['ticker']}")
     texto.append(f"Melhor balanceado: {ranking_balanceado.iloc[0]['ticker']}")
     texto.append("=" * 80)
 
@@ -104,12 +132,12 @@ def gerar_relatorio(rankings):
 
     print(relatorio)
 
-    # Salvar arquivos
     (OUTPUT_DIR / "report.txt").write_text(relatorio, encoding="utf-8")
 
     rankings["base"].to_csv(OUTPUT_DIR / "base_final.csv", index=False)
     ranking_qualidade.to_csv(OUTPUT_DIR / "ranking_qualidade.csv", index=False)
     ranking_crescimento.to_csv(OUTPUT_DIR / "ranking_crescimento.csv", index=False)
+    ranking_valuation.to_csv(OUTPUT_DIR / "ranking_valuation.csv", index=False)
     ranking_balanceado.to_csv(OUTPUT_DIR / "ranking_balanceado.csv", index=False)
 
     print("\nArquivos salvos em /output:")
@@ -117,4 +145,5 @@ def gerar_relatorio(rankings):
     print("- base_final.csv")
     print("- ranking_qualidade.csv")
     print("- ranking_crescimento.csv")
+    print("- ranking_valuation.csv")
     print("- ranking_balanceado.csv")
