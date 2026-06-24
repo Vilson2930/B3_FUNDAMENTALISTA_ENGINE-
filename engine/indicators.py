@@ -68,6 +68,102 @@ def extrair_fundamentos(dados_cvm):
     return fundamentos
 
 
+def calcular_crescimento(dados_cvm):
+    df_dre = dados_cvm["dre"]
+
+    dre_base = df_dre[
+        df_dre["ORDEM_EXERC"].isin(["ÚLTIMO", "PENÚLTIMO"])
+    ].copy()
+
+    receita_atual = dre_base[
+        (dre_base["ORDEM_EXERC"] == "ÚLTIMO") &
+        (dre_base["CD_CONTA"] == "3.01")
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "receita_atual"}
+    )
+
+    receita_anterior = dre_base[
+        (dre_base["ORDEM_EXERC"] == "PENÚLTIMO") &
+        (dre_base["CD_CONTA"] == "3.01")
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "receita_anterior"}
+    )
+
+    lucro_atual = dre_base[
+        (dre_base["ORDEM_EXERC"] == "ÚLTIMO") &
+        (dre_base["CD_CONTA"] == "3.11")
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "lucro_atual"}
+    )
+
+    lucro_anterior = dre_base[
+        (dre_base["ORDEM_EXERC"] == "PENÚLTIMO") &
+        (dre_base["CD_CONTA"] == "3.11")
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "lucro_anterior"}
+    )
+
+    crescimento = receita_atual.merge(
+        receita_anterior,
+        on="CD_CVM",
+        how="left"
+    )
+
+    crescimento = crescimento.merge(
+        lucro_atual,
+        on="CD_CVM",
+        how="left"
+    )
+
+    crescimento = crescimento.merge(
+        lucro_anterior,
+        on="CD_CVM",
+        how="left"
+    )
+
+    crescimento = crescimento.groupby(
+        "CD_CVM",
+        as_index=False
+    ).agg({
+        "receita_atual": "max",
+        "receita_anterior": "max",
+        "lucro_atual": "max",
+        "lucro_anterior": "max"
+    })
+
+    crescimento["crescimento_receita"] = (
+        (crescimento["receita_atual"] - crescimento["receita_anterior"]) /
+        crescimento["receita_anterior"].abs()
+    )
+
+    crescimento["crescimento_lucro"] = (
+        (crescimento["lucro_atual"] - crescimento["lucro_anterior"]) /
+        crescimento["lucro_anterior"].abs()
+    )
+
+    crescimento = crescimento.replace([np.inf, -np.inf], np.nan)
+
+    crescimento["crescimento_receita"] = (
+        crescimento["crescimento_receita"]
+        .fillna(0)
+        .clip(-1, 2)
+    )
+
+    crescimento["crescimento_lucro"] = (
+        crescimento["crescimento_lucro"]
+        .fillna(0)
+        .clip(-1, 2)
+    )
+
+    return crescimento[
+        [
+            "CD_CVM",
+            "crescimento_receita",
+            "crescimento_lucro"
+        ]
+    ]
+
+
 def calcular_indicadores(df):
     df = df.copy()
 
@@ -151,6 +247,24 @@ def construir_base_fundamentalista(df_b3, dados_cvm):
     fundamentos = extrair_fundamentos(dados_cvm)
 
     fundamentos = calcular_indicadores(fundamentos)
+
+    crescimento = calcular_crescimento(dados_cvm)
+
+    fundamentos = fundamentos.merge(
+        crescimento,
+        on="CD_CVM",
+        how="left"
+    )
+
+    fundamentos["crescimento_receita"] = (
+        fundamentos["crescimento_receita"]
+        .fillna(0)
+    )
+
+    fundamentos["crescimento_lucro"] = (
+        fundamentos["crescimento_lucro"]
+        .fillna(0)
+    )
 
     base = cruzar_b3_cvm(df_b3, fundamentos)
 
