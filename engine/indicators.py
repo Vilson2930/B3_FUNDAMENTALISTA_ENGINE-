@@ -2,6 +2,7 @@
 # indicators.py
 # B3 FUNDAMENTALISTA ENGINE
 # Núcleo Quantitativo + EBIT + Endividamento
+# Versão otimizada para GitHub Actions
 # ============================================================
 
 import pandas as pd
@@ -34,42 +35,58 @@ def extrair_fundamentos(dados_cvm):
     receita = df_dre[
         (df_dre["ORDEM_EXERC"] == "ÚLTIMO") &
         (df_dre["CD_CONTA"] == "3.01")
-    ][["CD_CVM", "DENOM_CIA", "VL_CONTA"]].rename(columns={"VL_CONTA": "receita"})
+    ][["CD_CVM", "DENOM_CIA", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "receita"}
+    )
 
     lucro = df_dre[
         (df_dre["ORDEM_EXERC"] == "ÚLTIMO") &
         (df_dre["CD_CONTA"] == "3.11")
-    ][["CD_CVM", "VL_CONTA"]].rename(columns={"VL_CONTA": "lucro_liquido"})
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "lucro_liquido"}
+    )
 
     ebit = df_dre[
         (df_dre["ORDEM_EXERC"] == "ÚLTIMO") &
         (df_dre["CD_CONTA"] == "3.05")
-    ][["CD_CVM", "VL_CONTA"]].rename(columns={"VL_CONTA": "ebit"})
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "ebit"}
+    )
 
     ativo = df_bpa[
         (df_bpa["ORDEM_EXERC"] == "ÚLTIMO") &
         (df_bpa["CD_CONTA"] == "1")
-    ][["CD_CVM", "VL_CONTA"]].rename(columns={"VL_CONTA": "ativo_total"})
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "ativo_total"}
+    )
 
     patrimonio = df_bpp[
         (df_bpp["ORDEM_EXERC"] == "ÚLTIMO") &
         (df_bpp["CD_CONTA"] == "2.03")
-    ][["CD_CVM", "VL_CONTA"]].rename(columns={"VL_CONTA": "patrimonio_liquido"})
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "patrimonio_liquido"}
+    )
 
     passivo_circ = df_bpp[
         (df_bpp["ORDEM_EXERC"] == "ÚLTIMO") &
         (df_bpp["CD_CONTA"] == "2.01")
-    ][["CD_CVM", "VL_CONTA"]].rename(columns={"VL_CONTA": "passivo_circulante"})
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "passivo_circulante"}
+    )
 
     passivo_nao_circ = df_bpp[
         (df_bpp["ORDEM_EXERC"] == "ÚLTIMO") &
         (df_bpp["CD_CONTA"] == "2.02")
-    ][["CD_CVM", "VL_CONTA"]].rename(columns={"VL_CONTA": "passivo_nao_circulante"})
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "passivo_nao_circulante"}
+    )
 
     caixa = df_bpa[
         (df_bpa["ORDEM_EXERC"] == "ÚLTIMO") &
         (df_bpa["CD_CONTA"] == "1.01.01")
-    ][["CD_CVM", "VL_CONTA"]].rename(columns={"VL_CONTA": "caixa"})
+    ][["CD_CVM", "VL_CONTA"]].rename(
+        columns={"VL_CONTA": "caixa"}
+    )
 
     fundamentos = receita.merge(lucro, on="CD_CVM", how="inner")
     fundamentos = fundamentos.merge(ebit, on="CD_CVM", how="left")
@@ -115,11 +132,26 @@ def calcular_crescimento(dados_cvm):
         ][["CD_CVM", "VL_CONTA"]].rename(columns={"VL_CONTA": nome})
 
     crescimento = extrair("ÚLTIMO", "3.01", "receita_atual")
-    crescimento = crescimento.merge(extrair("PENÚLTIMO", "3.01", "receita_anterior"), on="CD_CVM", how="left")
-    crescimento = crescimento.merge(extrair("ÚLTIMO", "3.11", "lucro_atual"), on="CD_CVM", how="left")
-    crescimento = crescimento.merge(extrair("PENÚLTIMO", "3.11", "lucro_anterior"), on="CD_CVM", how="left")
+    crescimento = crescimento.merge(
+        extrair("PENÚLTIMO", "3.01", "receita_anterior"),
+        on="CD_CVM",
+        how="left"
+    )
+    crescimento = crescimento.merge(
+        extrair("ÚLTIMO", "3.11", "lucro_atual"),
+        on="CD_CVM",
+        how="left"
+    )
+    crescimento = crescimento.merge(
+        extrair("PENÚLTIMO", "3.11", "lucro_anterior"),
+        on="CD_CVM",
+        how="left"
+    )
 
-    crescimento = crescimento.groupby("CD_CVM", as_index=False).max(numeric_only=True)
+    crescimento = crescimento.groupby(
+        "CD_CVM",
+        as_index=False
+    ).max(numeric_only=True)
 
     crescimento["crescimento_receita"] = (
         (crescimento["receita_atual"] - crescimento["receita_anterior"]) /
@@ -133,10 +165,17 @@ def calcular_crescimento(dados_cvm):
 
     crescimento = crescimento.replace([np.inf, -np.inf], np.nan)
 
-    crescimento["crescimento_receita"] = crescimento["crescimento_receita"].fillna(0).clip(-1, 2)
-    crescimento["crescimento_lucro"] = crescimento["crescimento_lucro"].fillna(0).clip(-1, 2)
+    crescimento["crescimento_receita"] = (
+        crescimento["crescimento_receita"].fillna(0).clip(-1, 2)
+    )
 
-    return crescimento[["CD_CVM", "crescimento_receita", "crescimento_lucro"]]
+    crescimento["crescimento_lucro"] = (
+        crescimento["crescimento_lucro"].fillna(0).clip(-1, 2)
+    )
+
+    return crescimento[
+        ["CD_CVM", "crescimento_receita", "crescimento_lucro"]
+    ]
 
 
 def calcular_indicadores(df):
@@ -147,7 +186,9 @@ def calcular_indicadores(df):
     df["margem_liquida"] = df["lucro_liquido"] / df["receita"]
 
     df["divida_liquida"] = df["passivo_total"] - df["caixa"]
-    df["divida_patrimonio"] = df["divida_liquida"] / df["patrimonio_liquido"]
+    df["divida_patrimonio"] = (
+        df["divida_liquida"] / df["patrimonio_liquido"]
+    )
 
     df = df.replace([np.inf, -np.inf], np.nan)
 
@@ -159,16 +200,39 @@ def cruzar_b3_cvm(df_b3, df_fundamentos):
     df_fundamentos = df_fundamentos.copy()
 
     df_b3["nome_limpo"] = df_b3["empresa"].apply(limpar_nome_empresa)
-    df_fundamentos["nome_limpo"] = df_fundamentos["DENOM_CIA"].apply(limpar_nome_empresa)
+    df_fundamentos["nome_limpo"] = (
+        df_fundamentos["DENOM_CIA"].apply(limpar_nome_empresa)
+    )
+
+    df_b3["chave_nome"] = df_b3["nome_limpo"].str.split().str[0]
+    df_fundamentos["chave_nome"] = (
+        df_fundamentos["nome_limpo"].str.split().str[0]
+    )
 
     matches = []
 
     for _, b3 in df_b3.iterrows():
+        chave = b3["chave_nome"]
+
+        if not isinstance(chave, str) or chave.strip() == "":
+            continue
+
+        candidatos = df_fundamentos[
+            df_fundamentos["chave_nome"] == chave
+        ]
+
+        if candidatos.empty:
+            continue
+
         melhor_score = 0
         melhor = None
 
-        for _, cvm in df_fundamentos.iterrows():
-            score = SequenceMatcher(None, b3["nome_limpo"], cvm["nome_limpo"]).ratio()
+        for _, cvm in candidatos.iterrows():
+            score = SequenceMatcher(
+                None,
+                b3["nome_limpo"],
+                cvm["nome_limpo"]
+            ).ratio()
 
             if score > melhor_score:
                 melhor_score = score
@@ -185,6 +249,9 @@ def cruzar_b3_cvm(df_b3, df_fundamentos):
 
 def aplicar_filtro(df):
     df = df.copy()
+
+    if df.empty:
+        return df
 
     df = df[
         (df["market_cap"] > 500_000_000) &
@@ -207,6 +274,10 @@ def aplicar_filtro(df):
 
 def deduplicar_por_empresa(df):
     df = df.copy()
+
+    if df.empty:
+        return df
+
     df = df.sort_values("volume", ascending=False)
 
     df = df.drop_duplicates(
@@ -229,10 +300,16 @@ def construir_base_fundamentalista(df_b3, dados_cvm):
         how="left"
     )
 
-    fundamentos["crescimento_receita"] = fundamentos["crescimento_receita"].fillna(0)
-    fundamentos["crescimento_lucro"] = fundamentos["crescimento_lucro"].fillna(0)
+    fundamentos["crescimento_receita"] = (
+        fundamentos["crescimento_receita"].fillna(0)
+    )
+
+    fundamentos["crescimento_lucro"] = (
+        fundamentos["crescimento_lucro"].fillna(0)
+    )
 
     base = cruzar_b3_cvm(df_b3, fundamentos)
+
     base = aplicar_filtro(base)
     base = deduplicar_por_empresa(base)
 
