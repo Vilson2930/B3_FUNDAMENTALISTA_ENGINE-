@@ -193,6 +193,11 @@ def gerar_relatorio(rankings):
     base.to_csv(OUTPUT_DIR / "base_final.csv", index=False)
 
     ranking_premium.to_csv(OUTPUT_DIR / "ranking_premium.csv", index=False)
+    ranking_premium.head(20).to_csv(
+        OUTPUT_DIR / "top20_premium.csv",
+        index=False
+    )
+
     ranking_qualidade.to_csv(OUTPUT_DIR / "ranking_qualidade.csv", index=False)
     ranking_crescimento.to_csv(OUTPUT_DIR / "ranking_crescimento.csv", index=False)
     ranking_valuation.to_csv(OUTPUT_DIR / "ranking_valuation.csv", index=False)
@@ -203,6 +208,7 @@ def gerar_relatorio(rankings):
     print("- report.txt")
     print("- base_final.csv")
     print("- ranking_premium.csv")
+    print("- top20_premium.csv")
     print("- ranking_qualidade.csv")
     print("- ranking_crescimento.csv")
     print("- ranking_valuation.csv")
