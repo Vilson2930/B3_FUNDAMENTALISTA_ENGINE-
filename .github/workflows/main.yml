@@ -14,6 +14,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Restore CVM Cache
+        uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: cvm-dfp-cache-2025
+          restore-keys: |
+            cvm-dfp-cache-
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -32,4 +40,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: b3-fundamentalista-report
-          path: .
+          path: output/
