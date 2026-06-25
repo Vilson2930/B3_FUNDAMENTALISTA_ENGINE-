@@ -31,7 +31,11 @@ def limpar_inf_nan(df):
     return df
 
 
-def winsorizar(serie, limite_inferior=0.01, limite_superior=0.99):
+def winsorizar(
+    serie,
+    limite_inferior=0.01,
+    limite_superior=0.99
+):
     inferior = serie.quantile(limite_inferior)
     superior = serie.quantile(limite_superior)
 
@@ -41,28 +45,81 @@ def winsorizar(serie, limite_inferior=0.01, limite_superior=0.99):
     )
 
 
-def limitar_por_setor(df, coluna_score, limite_setor=3, top_n=30):
-    selecionadas = []
-    contagem_setor = {}
+def limitar_por_setor(
+    df,
+    coluna_score,
+    top_n=20,
+    limite_setor=2,
+    limite_subsetor=1
+):
+    """
+    Seleciona empresas respeitando limite por setor
+    e subsetor.
+    """
 
-    df_ordenado = df.sort_values(
+    if df.empty:
+        return df.copy()
+
+    df = df.copy()
+
+    if "setor" not in df.columns:
+        df["setor"] = "SEM SETOR"
+
+    if "subsetor" not in df.columns:
+        df["subsetor"] = df["setor"]
+
+    df["setor"] = df["setor"].fillna("SEM SETOR")
+    df["subsetor"] = df["subsetor"].fillna(df["setor"])
+
+    df = df.sort_values(
         coluna_score,
         ascending=False
     )
 
-    for _, row in df_ordenado.iterrows():
-        setor = row.get("setor", "SEM SETOR")
+    selecionadas = []
+    contador_setor = {}
+    contador_subsetor = {}
 
-        contagem_setor[setor] = contagem_setor.get(setor, 0)
+    for _, row in df.iterrows():
 
-        if contagem_setor[setor] < limite_setor:
-            selecionadas.append(row)
-            contagem_setor[setor] += 1
+        setor = row["setor"]
+        subsetor = row["subsetor"]
+
+        if contador_setor.get(setor, 0) >= limite_setor:
+            continue
+
+        if contador_subsetor.get(subsetor, 0) >= limite_subsetor:
+            continue
+
+        selecionadas.append(row)
+
+        contador_setor[setor] = contador_setor.get(setor, 0) + 1
+        contador_subsetor[subsetor] = contador_subsetor.get(subsetor, 0) + 1
 
         if len(selecionadas) >= top_n:
             break
 
-    return pd.DataFrame(selecionadas)
+    resultado = pd.DataFrame(selecionadas)
+
+    return resultado.reset_index(drop=True)
+
+
+def distribuicao_setorial(df):
+    if df.empty or "setor" not in df.columns:
+        return pd.DataFrame()
+
+    return (
+        df["setor"]
+        .fillna("SEM SETOR")
+        .value_counts()
+        .reset_index()
+        .rename(
+            columns={
+                "index": "setor",
+                "setor": "quantidade"
+            }
+        )
+    )
 
 
 def formatar_percentual(valor):
