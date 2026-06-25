@@ -4,12 +4,15 @@
 # Análise Técnica das TOP 20 ações premium
 # ============================================================
 
-import pandas as pd
-import numpy as np
-import yfinance as yf
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+import yfinance as yf
+
+
 INPUT_FILE = Path("output/top20_premium.csv")
+OUTPUT_FILE = Path("output/top20_entrada_tecnica.csv")
 
 
 def carregar_top20():
@@ -41,18 +44,41 @@ def baixar_precos(ticker, periodo="1y"):
     if df.empty:
         return pd.DataFrame()
 
+    # Corrige MultiIndex do yfinance
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
     df = df.reset_index()
+
     return df
+
+
+def garantir_serie(df, coluna):
+    dado = df[coluna]
+
+    if isinstance(dado, pd.DataFrame):
+        return dado.iloc[:, 0]
+
+    return dado
 
 
 def calcular_indicadores_tecnicos(df):
     df = df.copy()
 
-    df["mm21"] = df["Close"].rolling(21).mean()
-    df["mm50"] = df["Close"].rolling(50).mean()
-    df["mm200"] = df["Close"].rolling(200).mean()
+    if "Close" not in df.columns or "Volume" not in df.columns:
+        return pd.DataFrame()
 
-    delta = df["Close"].diff()
+    close = garantir_serie(df, "Close")
+    volume = garantir_serie(df, "Volume")
+
+    df["close_ajustado"] = close
+    df["volume_ajustado"] = volume
+
+    df["mm21"] = close.rolling(21).mean()
+    df["mm50"] = close.rolling(50).mean()
+    df["mm200"] = close.rolling(200).mean()
+
+    delta = close.diff()
     ganho = delta.clip(lower=0)
     perda = -delta.clip(upper=0)
 
@@ -62,11 +88,13 @@ def calcular_indicadores_tecnicos(df):
     rs = media_ganho / media_perda
     df["rsi14"] = 100 - (100 / (1 + rs))
 
-    df["retorno_20d"] = df["Close"].pct_change(20)
-    df["dist_mm200"] = (df["Close"] / df["mm200"]) - 1
+    df["retorno_20d"] = close.pct_change(20)
+    df["dist_mm200"] = (close / df["mm200"]) - 1
 
-    df["volume_medio_20d"] = df["Volume"].rolling(20).mean()
-    df["volume_forca"] = df["Volume"] / df["volume_medio_20d"]
+    df["volume_medio_20d"] = volume.rolling(20).mean()
+    df["volume_forca"] = volume / df["volume_medio_20d"]
+
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     return df
 
@@ -74,7 +102,7 @@ def calcular_indicadores_tecnicos(df):
 def calcular_entry_score(linha):
     score = 0
 
-    preco = linha.get("Close", np.nan)
+    preco = linha.get("close_ajustado", np.nan)
     mm21 = linha.get("mm21", np.nan)
     mm50 = linha.get("mm50", np.nan)
     mm200 = linha.get("mm200", np.nan)
@@ -124,10 +152,9 @@ def classificar_entrada(score):
 
 def analisar_top20():
     top20 = carregar_top20()
-
     resultados = []
 
-    for _, empresa in top20.iterrows():
+    for _, empresa in top20.head(20).iterrows():
         ticker = empresa["ticker"]
 
         print(f"Analisando {ticker}...")
@@ -135,12 +162,16 @@ def analisar_top20():
         precos = baixar_precos(ticker)
 
         if precos.empty or len(precos) < 200:
+            print(f"{ticker}: dados insuficientes.")
             continue
 
         precos = calcular_indicadores_tecnicos(precos)
 
-        ultima = precos.iloc[-1].copy()
+        if precos.empty:
+            print(f"{ticker}: erro ao calcular indicadores técnicos.")
+            continue
 
+        ultima = precos.iloc[-1].copy()
         entry_score = calcular_entry_score(ultima)
 
         resultados.append({
@@ -149,7 +180,7 @@ def analisar_top20():
             "score_balanceado": empresa.get("score_balanceado", np.nan),
             "moat_score": empresa.get("moat_score", np.nan),
             "rating": empresa.get("rating", ""),
-            "preco": ultima.get("Close", np.nan),
+            "preco": ultima.get("close_ajustado", np.nan),
             "mm21": ultima.get("mm21", np.nan),
             "mm50": ultima.get("mm50", np.nan),
             "mm200": ultima.get("mm200", np.nan),
@@ -164,6 +195,7 @@ def analisar_top20():
     df_resultado = pd.DataFrame(resultados)
 
     if df_resultado.empty:
+        print("Nenhum resultado técnico gerado.")
         return df_resultado
 
     df_resultado = df_resultado.sort_values(
@@ -174,7 +206,7 @@ def analisar_top20():
     Path("output").mkdir(exist_ok=True)
 
     df_resultado.to_csv(
-        "output/top20_entrada_tecnica.csv",
+        OUTPUT_FILE,
         index=False
     )
 
@@ -194,6 +226,8 @@ def analisar_top20():
             ]
         ].head(20)
     )
+
+    print(f"\nArquivo salvo: {OUTPUT_FILE}")
 
     return df_resultado
 
