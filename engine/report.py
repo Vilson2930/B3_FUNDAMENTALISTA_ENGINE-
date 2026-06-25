@@ -56,7 +56,7 @@ def montar_bloco_ranking(titulo, df, coluna_score):
     linhas.append(titulo)
     linhas.append("=" * 80)
 
-    if df.empty:
+    if df is None or df.empty:
         linhas.append("Sem empresas suficientes para este ranking.")
         return "\n".join(linhas)
 
@@ -67,17 +67,15 @@ def montar_bloco_ranking(titulo, df, coluna_score):
             f"Score: {row.get(coluna_score, 0):.2f}"
         )
 
-        if "rating" in row:
-            linhas.append(
-                f"     Rating: {row.get('rating', 'N/A')} | "
-                f"{row.get('descricao_rating', 'N/A')}"
-            )
+        linhas.append(
+            f"     Rating: {row.get('rating', 'N/A')} | "
+            f"{row.get('descricao_rating', 'N/A')}"
+        )
 
-        if "moat_score" in row:
-            linhas.append(
-                f"     Moat: {row.get('moat_score', 0):.2f} | "
-                f"{row.get('moat_classificacao', 'N/A')}"
-            )
+        linhas.append(
+            f"     Moat: {row.get('moat_score', 0):.2f} | "
+            f"{row.get('moat_classificacao', 'N/A')}"
+        )
 
         linhas.append(f"     Motivos: {explicar_empresa(row)}")
 
@@ -103,13 +101,22 @@ def gerar_relatorio(rankings):
     ranking_qualidade = pegar_ranking(rankings, "qualidade")
     ranking_crescimento = pegar_ranking(rankings, "crescimento")
     ranking_valuation = pegar_ranking(rankings, "valuation")
-    ranking_balanceado = pegar_ranking(rankings, "balanceado")
     ranking_moat = pegar_ranking(rankings, "moat")
+    ranking_balanceado = pegar_ranking(rankings, "balanceado")
+    ranking_premium = pegar_ranking(rankings, "premium")
 
     texto = []
     texto.append("=" * 80)
     texto.append("RELATÓRIO EXECUTIVO — B3 FUNDAMENTALISTA ENGINE")
     texto.append("=" * 80)
+
+    texto.append(
+        montar_bloco_ranking(
+            "TOP 10 — PREMIUM INSTITUCIONAL",
+            ranking_premium,
+            "score_balanceado"
+        )
+    )
 
     texto.append(
         montar_bloco_ranking(
@@ -157,14 +164,21 @@ def gerar_relatorio(rankings):
     texto.append("=" * 80)
     texto.append(f"Empresas na base final: {len(base)}")
 
+    if not ranking_premium.empty:
+        texto.append(f"Melhor premium institucional: {ranking_premium.iloc[0].get('ticker', 'N/A')}")
+
     if not ranking_qualidade.empty:
         texto.append(f"Melhor qualidade: {ranking_qualidade.iloc[0].get('ticker', 'N/A')}")
+
     if not ranking_crescimento.empty:
         texto.append(f"Melhor crescimento: {ranking_crescimento.iloc[0].get('ticker', 'N/A')}")
+
     if not ranking_valuation.empty:
         texto.append(f"Melhor valuation: {ranking_valuation.iloc[0].get('ticker', 'N/A')}")
+
     if not ranking_moat.empty:
         texto.append(f"Melhor moat: {ranking_moat.iloc[0].get('ticker', 'N/A')}")
+
     if not ranking_balanceado.empty:
         texto.append(f"Melhor balanceado: {ranking_balanceado.iloc[0].get('ticker', 'N/A')}")
 
@@ -177,6 +191,8 @@ def gerar_relatorio(rankings):
     (OUTPUT_DIR / "report.txt").write_text(relatorio, encoding="utf-8")
 
     base.to_csv(OUTPUT_DIR / "base_final.csv", index=False)
+
+    ranking_premium.to_csv(OUTPUT_DIR / "ranking_premium.csv", index=False)
     ranking_qualidade.to_csv(OUTPUT_DIR / "ranking_qualidade.csv", index=False)
     ranking_crescimento.to_csv(OUTPUT_DIR / "ranking_crescimento.csv", index=False)
     ranking_valuation.to_csv(OUTPUT_DIR / "ranking_valuation.csv", index=False)
@@ -186,6 +202,7 @@ def gerar_relatorio(rankings):
     print("\nArquivos salvos em /output:")
     print("- report.txt")
     print("- base_final.csv")
+    print("- ranking_premium.csv")
     print("- ranking_qualidade.csv")
     print("- ranking_crescimento.csv")
     print("- ranking_valuation.csv")
