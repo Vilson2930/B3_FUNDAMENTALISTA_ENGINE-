@@ -36,8 +36,25 @@ jobs:
         run: |
           python main.py
 
-      - name: Save Report Artifact
+      - name: Verificar arquivos gerados
+        if: always()
+        run: |
+          echo "Diretório atual:"
+          pwd
+
+          echo ""
+          echo "Arquivos na raiz:"
+          ls -la
+
+          echo ""
+          echo "Arquivos em output:"
+          ls -la output || true
+
+      - name: Upload Reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: b3-fundamentalista-report
-          path: output/
+          path: output/**
+          if-no-files-found: error
+          retention-days: 30
