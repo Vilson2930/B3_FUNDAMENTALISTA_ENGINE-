@@ -8,7 +8,6 @@ from engine.b3_data import carregar_empresas_b3
 from engine.indicators import construir_base_fundamentalista
 from engine.scoring import gerar_rankings
 from engine.report import gerar_relatorio
-# from engine.technical_engine import analisar_top20
 
 
 def main():
@@ -38,10 +37,6 @@ def main():
 
     print("\n[5/5] Gerando relatório fundamentalista...")
     gerar_relatorio(rankings)
-
-    # Técnico desligado temporariamente para evitar travamento do Yahoo
-    # print("\n[6/6] Analisando entrada técnica das TOP 20 premium...")
-    # analisar_top20()
 
     print("\n")
     print("=" * 80)
