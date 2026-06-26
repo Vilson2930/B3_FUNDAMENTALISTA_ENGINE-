@@ -6,7 +6,6 @@
 
 from pathlib import Path
 import pandas as pd
-import numpy as np
 
 
 INPUT_PREMIUM = Path("output/top20_premium.csv")
@@ -41,14 +40,36 @@ def calcular_peso_por_score(df, score_col="score_final_carteira"):
 def limitar_peso_maximo(df, peso_maximo=0.10):
     df = df.copy()
 
-    df["peso_sugerido"] = df["peso_sugerido"].clip(
-        upper=peso_maximo
+    excesso = 0
+
+    while True:
+
+        acima = df["peso_sugerido"] > peso_maximo
+
+        if not acima.any():
+            break
+
+        excesso = (
+            df.loc[acima, "peso_sugerido"] - peso_maximo
+        ).sum()
+
+        df.loc[acima, "peso_sugerido"] = peso_maximo
+
+        abaixo = df["peso_sugerido"] < peso_maximo
+
+        if abaixo.sum() == 0:
+            break
+
+        proporcao = (
+            df.loc[abaixo, "peso_sugerido"]
+            / df.loc[abaixo, "peso_sugerido"].sum()
+        )
+
+        df.loc[abaixo, "peso_sugerido"] += excesso * proporcao
+
+    df["peso_sugerido"] = (
+        df["peso_sugerido"] / df["peso_sugerido"].sum()
     )
-
-    total = df["peso_sugerido"].sum()
-
-    if total > 0:
-        df["peso_sugerido"] = df["peso_sugerido"] / total
 
     df["peso_sugerido_pct"] = df["peso_sugerido"] * 100
 
@@ -56,6 +77,7 @@ def limitar_peso_maximo(df, peso_maximo=0.10):
 
 
 def montar_carteira():
+
     premium = carregar_csv(INPUT_PREMIUM)
     tecnico = carregar_csv(INPUT_TECNICO)
     diversificado = carregar_csv(INPUT_DIVERSIFICADO)
@@ -66,7 +88,12 @@ def montar_carteira():
 
     base = premium.copy()
 
+    # -------------------------------------------------------
+    # Junta Análise Técnica
+    # -------------------------------------------------------
+
     if not tecnico.empty and "ticker" in tecnico.columns:
+
         cols_tecnico = [
             "ticker",
             "score_tecnico",
@@ -78,8 +105,8 @@ def montar_carteira():
         ]
 
         cols_tecnico = [
-            col for col in cols_tecnico
-            if col in tecnico.columns
+            c for c in cols_tecnico
+            if c in tecnico.columns
         ]
 
         base = base.merge(
@@ -88,29 +115,56 @@ def montar_carteira():
             how="left"
         )
 
-    if not diversificado.empty and "ticker" in diversificado.columns:
-        base["selecionada_diversificacao"] = base["ticker"].isin(
-            diversificado["ticker"]
+    # -------------------------------------------------------
+    # Apenas informa se passou pela diversificação
+    # -------------------------------------------------------
+
+    if (
+        not diversificado.empty
+        and "ticker" in diversificado.columns
+    ):
+
+        base["selecionada_diversificacao"] = (
+            base["ticker"].isin(
+                diversificado["ticker"]
+            )
         )
+
     else:
+
         base["selecionada_diversificacao"] = True
+
+    # -------------------------------------------------------
+    # Score Técnico
+    # -------------------------------------------------------
 
     if "score_tecnico" not in base.columns:
         base["score_tecnico"] = 50
 
-    base["score_tecnico"] = base["score_tecnico"].fillna(50)
-
-    base["bonus_diversificacao"] = np.where(
-        base["selecionada_diversificacao"],
-        100,
-        50
+    base["score_tecnico"] = (
+        pd.to_numeric(
+            base["score_tecnico"],
+            errors="coerce"
+        )
+        .fillna(50)
     )
+
+    # -------------------------------------------------------
+    # Score Final Institucional
+    #
+    # 70% Fundamentalista
+    # 30% Técnico
+    # -------------------------------------------------------
 
     base["score_final_carteira"] = (
-        base["score_balanceado"].fillna(50) * 0.60 +
-        base["score_tecnico"].fillna(50) * 0.25 +
-        base["bonus_diversificacao"] * 0.15
+
+        base["score_balanceado"].fillna(50) * 0.70 +
+
+        base["score_tecnico"] * 0.30
+
     )
+
+    # -------------------------------------------------------
 
     base = base.sort_values(
         "score_final_carteira",
@@ -120,7 +174,11 @@ def montar_carteira():
     base = base.head(20)
 
     base = calcular_peso_por_score(base)
-    base = limitar_peso_maximo(base, peso_maximo=0.10)
+
+    base = limitar_peso_maximo(
+        base,
+        peso_maximo=0.10
+    )
 
     Path("output").mkdir(exist_ok=True)
 
@@ -130,7 +188,27 @@ def montar_carteira():
         encoding="utf-8-sig"
     )
 
-    print("Carteira institucional salva:")
+    print("=" * 70)
+    print("CARTEIRA INSTITUCIONAL")
+    print("=" * 70)
+
+    print(
+        base[
+            [
+                "ticker",
+                "score_balanceado",
+                "score_tecnico",
+                "score_final_carteira",
+                "peso_sugerido_pct"
+            ]
+        ]
+    )
+
+    print("\nCarteira institucional salva em:")
     print(OUTPUT_FILE)
 
     return base
+
+
+if __name__ == "__main__":
+    montar_carteira()
