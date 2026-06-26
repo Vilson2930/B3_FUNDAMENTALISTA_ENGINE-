@@ -1,136 +1,199 @@
-# ============================================================
-# portfolio_engine.py
-# B3 FUNDAMENTALISTA ENGINE
-# Carteira Institucional Final
-# ============================================================
-
 from pathlib import Path
 import pandas as pd
-import numpy as np
+
+OUTPUT_DIR = Path("output")
+INPUT_FILE = OUTPUT_DIR / "top20_tecnico.csv"
+
+OUTPUT_FILE = OUTPUT_DIR / "carteira_institucional.csv"
+REPORT_FILE = OUTPUT_DIR / "portfolio_report.txt"
+
+MAX_EMPRESAS_CARTEIRA = 15
+MAX_EMPRESAS_POR_SETOR = 2
+
+PESO_FUNDAMENTALISTA = 0.50
+PESO_TECNICO = 0.35
+PESO_MOAT = 0.15
 
 
-INPUT_PREMIUM = Path("output/top20_premium.csv")
-INPUT_TECNICO = Path("output/top20_tecnico.csv")
-INPUT_DIVERSIFICADO = Path("output/top20_diversificado.csv")
+def carregar_base():
+    if not INPUT_FILE.exists():
+        raise FileNotFoundError(f"Arquivo não encontrado: {INPUT_FILE}")
 
-OUTPUT_FILE = Path("output/carteira_institucional.csv")
-
-
-def carregar_csv(caminho):
-    if caminho.exists():
-        return pd.read_csv(caminho)
-
-    return pd.DataFrame()
-
-
-def calcular_peso_por_score(df, score_col="score_final_carteira"):
-    df = df.copy()
-
-    total_score = df[score_col].sum()
-
-    if total_score <= 0:
-        df["peso_sugerido"] = 1 / len(df)
-    else:
-        df["peso_sugerido"] = df[score_col] / total_score
-
-    df["peso_sugerido_pct"] = df["peso_sugerido"] * 100
-
+    df = pd.read_csv(INPUT_FILE)
+    df.columns = [str(c).strip() for c in df.columns]
     return df
 
 
-def limitar_peso_maximo(df, peso_maximo=0.10):
-    df = df.copy()
+def numero(df, coluna, padrao=0):
+    if coluna not in df.columns:
+        df[coluna] = padrao
+    df[coluna] = pd.to_numeric(df[coluna], errors="coerce").fillna(padrao)
+    return df
 
-    df["peso_sugerido"] = df["peso_sugerido"].clip(
-        upper=peso_maximo
+
+def penalidade_tecnica(sinal):
+    sinal = str(sinal).upper()
+
+    if "COMPRA FORTE" in sinal:
+        return 5
+    if sinal == "COMPRA":
+        return 2
+    if "AGUARDAR" in sinal:
+        return -3
+    if "FRACO" in sinal:
+        return -12
+    if "EVITAR" in sinal:
+        return -20
+
+    return 0
+
+
+def calcular_score_gestor(df):
+    df = numero(df, "score_balanceado", 0)
+    df = numero(df, "score_tecnico", 0)
+    df = numero(df, "moat_score", 50)
+
+    if "sinal_tecnico" not in df.columns:
+        df["sinal_tecnico"] = "NEUTRO"
+
+    df["ajuste_tecnico"] = df["sinal_tecnico"].apply(penalidade_tecnica)
+
+    df["score_gestor"] = (
+        df["score_balanceado"] * PESO_FUNDAMENTALISTA
+        + df["score_tecnico"] * PESO_TECNICO
+        + df["moat_score"] * PESO_MOAT
+        + df["ajuste_tecnico"]
     )
 
-    total = df["peso_sugerido"].sum()
-
-    if total > 0:
-        df["peso_sugerido"] = df["peso_sugerido"] / total
-
-    df["peso_sugerido_pct"] = df["peso_sugerido"] * 100
+    df["score_gestor"] = df["score_gestor"].clip(0, 100)
 
     return df
+
+
+def aplicar_diversificacao(df):
+    carteira = []
+    setores = {}
+
+    df = df.sort_values("score_gestor", ascending=False)
+
+    for _, row in df.iterrows():
+        setor = str(row.get("setor", "SEM_SETOR"))
+
+        if setores.get(setor, 0) >= MAX_EMPRESAS_POR_SETOR:
+            continue
+
+        carteira.append(row)
+        setores[setor] = setores.get(setor, 0) + 1
+
+        if len(carteira) >= MAX_EMPRESAS_CARTEIRA:
+            break
+
+    return pd.DataFrame(carteira)
+
+
+def calcular_pesos(carteira):
+    carteira = carteira.copy()
+
+    soma = carteira["score_gestor"].sum()
+
+    if soma <= 0:
+        carteira["peso_sugerido"] = 1 / len(carteira)
+    else:
+        carteira["peso_sugerido"] = carteira["score_gestor"] / soma
+
+    carteira["peso_sugerido_pct"] = carteira["peso_sugerido"] * 100
+
+    return carteira
+
+
+def definir_decisao(row):
+    score = row["score_gestor"]
+    sinal = str(row.get("sinal_tecnico", "")).upper()
+
+    if score >= 80 and "COMPRA" in sinal:
+        return "COMPRAR AGORA"
+
+    if score >= 70 and "FRACO" not in sinal and "EVITAR" not in sinal:
+        return "COMPRAR PARCIAL"
+
+    if score >= 60:
+        return "AGUARDAR"
+
+    return "NÃO PRIORIZAR"
+
+
+def gerar_motivo(row):
+    motivos = []
+
+    if row["score_balanceado"] >= 75:
+        motivos.append("fundamentos fortes")
+    else:
+        motivos.append("fundamentos moderados")
+
+    if row["score_tecnico"] >= 75:
+        motivos.append("técnico favorável")
+    elif row["score_tecnico"] < 50:
+        motivos.append("técnico fraco reduziu prioridade")
+
+    if row["moat_score"] >= 75:
+        motivos.append("moat relevante")
+
+    if row["ajuste_tecnico"] < 0:
+        motivos.append("penalização técnica aplicada")
+
+    return "; ".join(motivos)
 
 
 def montar_carteira():
-    premium = carregar_csv(INPUT_PREMIUM)
-    tecnico = carregar_csv(INPUT_TECNICO)
-    diversificado = carregar_csv(INPUT_DIVERSIFICADO)
+    OUTPUT_DIR.mkdir(exist_ok=True)
 
-    if premium.empty:
-        print("Arquivo top20_premium.csv não encontrado.")
-        return pd.DataFrame()
+    df = carregar_base()
+    df = calcular_score_gestor(df)
 
-    base = premium.copy()
+    carteira = aplicar_diversificacao(df)
+    carteira = calcular_pesos(carteira)
 
-    if not tecnico.empty and "ticker" in tecnico.columns:
-        cols_tecnico = [
-            "ticker",
-            "score_tecnico",
-            "sinal_tecnico",
-            "rsi14",
-            "retorno_20d",
-            "dist_mm200",
-            "volume_forca"
-        ]
+    carteira["decisao"] = carteira.apply(definir_decisao, axis=1)
+    carteira["motivo_decisao"] = carteira.apply(gerar_motivo, axis=1)
 
-        cols_tecnico = [
-            col for col in cols_tecnico
-            if col in tecnico.columns
-        ]
+    carteira = carteira.sort_values("score_gestor", ascending=False).reset_index(drop=True)
+    carteira.insert(0, "ranking", carteira.index + 1)
 
-        base = base.merge(
-            tecnico[cols_tecnico],
-            on="ticker",
-            how="left"
-        )
+    colunas = [
+        "ranking",
+        "ticker",
+        "empresa",
+        "setor",
+        "rating",
+        "moat_classificacao",
+        "score_balanceado",
+        "score_tecnico",
+        "moat_score",
+        "sinal_tecnico",
+        "ajuste_tecnico",
+        "score_gestor",
+        "peso_sugerido_pct",
+        "decisao",
+        "motivo_decisao",
+    ]
 
-    if not diversificado.empty and "ticker" in diversificado.columns:
-        base["selecionada_diversificacao"] = base["ticker"].isin(
-            diversificado["ticker"]
-        )
-    else:
-        base["selecionada_diversificacao"] = True
+    colunas = [c for c in colunas if c in carteira.columns]
 
-    if "score_tecnico" not in base.columns:
-        base["score_tecnico"] = 50
+    carteira[colunas].to_csv(OUTPUT_FILE, index=False)
 
-    base["score_tecnico"] = base["score_tecnico"].fillna(50)
+    with open(REPORT_FILE, "w", encoding="utf-8") as f:
+        f.write("B3 FUNDAMENTALISTA ENGINE — PORTFOLIO REPORT\n\n")
+        f.write(f"Empresas analisadas: {len(df)}\n")
+        f.write(f"Empresas selecionadas: {len(carteira)}\n")
+        f.write(f"Limite por setor: {MAX_EMPRESAS_POR_SETOR}\n\n")
+        f.write("Fórmula do Score Gestor:\n")
+        f.write("50% Fundamentalista + 35% Técnico + 15% Moat + Ajuste Técnico\n\n")
+        f.write(carteira[colunas].to_string(index=False))
 
-    base["bonus_diversificacao"] = np.where(
-        base["selecionada_diversificacao"],
-        100,
-        50
-    )
+    print("PORTFOLIO ENGINE FINALIZADO")
+    print(f"Arquivo salvo: {OUTPUT_FILE}")
+    print(f"Relatório salvo: {REPORT_FILE}")
 
-    base["score_final_carteira"] = (
-        base["score_balanceado"].fillna(50) * 0.60 +
-        base["score_tecnico"].fillna(50) * 0.25 +
-        base["bonus_diversificacao"] * 0.15
-    )
 
-    base = base.sort_values(
-        "score_final_carteira",
-        ascending=False
-    ).reset_index(drop=True)
-
-    base = base.head(20)
-
-    base = calcular_peso_por_score(base)
-    base = limitar_peso_maximo(base, peso_maximo=0.10)
-
-    Path("output").mkdir(exist_ok=True)
-
-    base.to_csv(
-        OUTPUT_FILE,
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    print("Carteira institucional salva:")
-    print(OUTPUT_FILE)
-
-    return base
+if __name__ == "__main__":
+    montar_carteira()
