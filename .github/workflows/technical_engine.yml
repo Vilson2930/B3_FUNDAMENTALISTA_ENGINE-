@@ -21,14 +21,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Fundamental Engine First
+      - name: Run Fundamental Engine
         run: |
           python main.py
 
       - name: Run Technical Engine
-        timeout-minutes: 3
+        timeout-minutes: 4
         run: |
           python -c "from engine.technical_engine import analisar_top20; analisar_top20()"
+
+      - name: Verificar arquivos gerados
+        if: always()
+        run: |
+          echo "Arquivos em output:"
+          ls -la output || true
 
       - name: Upload Technical Report
         if: always()
