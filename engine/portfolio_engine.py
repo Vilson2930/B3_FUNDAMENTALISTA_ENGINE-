@@ -2,6 +2,9 @@
 # portfolio_engine.py
 # B3 FUNDAMENTALISTA ENGINE
 # Carteira Institucional Final
+# Filosofia:
+# 1) Fundamentalista escolhe as 20 melhores empresas
+# 2) Técnico define prioridade/momento de entrada
 # ============================================================
 
 from pathlib import Path
@@ -11,21 +14,20 @@ import numpy as np
 
 INPUT_PREMIUM = Path("output/top20_premium.csv")
 INPUT_TECNICO = Path("output/top20_tecnico.csv")
-INPUT_DIVERSIFICADO = Path("output/top20_diversificado.csv")
-
 OUTPUT_FILE = Path("output/carteira_institucional.csv")
+
+PESO_FUNDAMENTALISTA = 0.70
+PESO_TECNICO = 0.30
 
 
 def carregar_csv(caminho):
     if caminho.exists():
         return pd.read_csv(caminho)
-
     return pd.DataFrame()
 
 
-def calcular_peso_por_score(df, score_col="score_final_carteira"):
+def calcular_peso_por_score(df, score_col="score_gestor"):
     df = df.copy()
-
     total_score = df[score_col].sum()
 
     if total_score <= 0:
@@ -34,29 +36,34 @@ def calcular_peso_por_score(df, score_col="score_final_carteira"):
         df["peso_sugerido"] = df[score_col] / total_score
 
     df["peso_sugerido_pct"] = df["peso_sugerido"] * 100
-
     return df
 
 
 def limitar_peso_maximo(df, peso_maximo=0.10):
     df = df.copy()
-
     df["peso_sugerido"] = df["peso_sugerido"].clip(upper=peso_maximo)
 
     total = df["peso_sugerido"].sum()
-
     if total > 0:
         df["peso_sugerido"] = df["peso_sugerido"] / total
 
     df["peso_sugerido_pct"] = df["peso_sugerido"] * 100
-
     return df
+
+
+def definir_decisao(score):
+    if score >= 80:
+        return "COMPRAR AGORA"
+    if score >= 70:
+        return "COMPRAR PARCIAL"
+    if score >= 60:
+        return "AGUARDAR MELHOR ENTRADA"
+    return "NÃO PRIORIZAR AGORA"
 
 
 def montar_carteira():
     premium = carregar_csv(INPUT_PREMIUM)
     tecnico = carregar_csv(INPUT_TECNICO)
-    diversificado = carregar_csv(INPUT_DIVERSIFICADO)
 
     if premium.empty:
         print("Arquivo top20_premium.csv não encontrado.")
@@ -75,7 +82,7 @@ def montar_carteira():
             "volume_forca",
         ]
 
-        cols_tecnico = [col for col in cols_tecnico if col in tecnico.columns]
+        cols_tecnico = [c for c in cols_tecnico if c in tecnico.columns]
 
         base = base.merge(
             tecnico[cols_tecnico],
@@ -83,12 +90,8 @@ def montar_carteira():
             how="left"
         )
 
-    if not diversificado.empty and "ticker" in diversificado.columns:
-        base["selecionada_diversificacao"] = base["ticker"].isin(
-            diversificado["ticker"]
-        )
-    else:
-        base["selecionada_diversificacao"] = True
+    if "score_balanceado" not in base.columns:
+        base["score_balanceado"] = 50
 
     if "score_tecnico" not in base.columns:
         base["score_tecnico"] = 50
@@ -96,55 +99,33 @@ def montar_carteira():
     if "sinal_tecnico" not in base.columns:
         base["sinal_tecnico"] = "NEUTRO"
 
-    if "score_balanceado" not in base.columns:
-        base["score_balanceado"] = 50
-
-    if "moat_score" not in base.columns:
-        base["moat_score"] = 50
+    base["score_balanceado"] = pd.to_numeric(
+        base["score_balanceado"], errors="coerce"
+    ).fillna(50)
 
     base["score_tecnico"] = pd.to_numeric(
         base["score_tecnico"], errors="coerce"
     ).fillna(50)
 
-    base["score_balanceado"] = pd.to_numeric(
-        base["score_balanceado"], errors="coerce"
-    ).fillna(50)
+    base["score_qualidade"] = base["score_balanceado"]
 
-    base["moat_score"] = pd.to_numeric(
-        base["moat_score"], errors="coerce"
-    ).fillna(50)
-
-    sinal = base["sinal_tecnico"].astype(str).str.upper()
-
-    base["ajuste_tecnico"] = np.select(
-        [
-            sinal.str.contains("COMPRA FORTE", na=False),
-            sinal.eq("COMPRA"),
-            sinal.str.contains("AGUARDAR", na=False),
-            sinal.str.contains("FRACO", na=False),
-            sinal.str.contains("EVITAR", na=False),
-        ],
-        [5, 2, -3, -12, -20],
-        default=0,
+    base["score_gestor"] = (
+        base["score_balanceado"] * PESO_FUNDAMENTALISTA
+        + base["score_tecnico"] * PESO_TECNICO
     )
 
-    base["score_final_carteira"] = (
-        base["score_balanceado"] * 0.50
-        + base["score_tecnico"] * 0.35
-        + base["moat_score"] * 0.15
-        + base["ajuste_tecnico"]
-    )
+    base["score_gestor"] = base["score_gestor"].clip(0, 100)
 
-    base["score_final_carteira"] = base["score_final_carteira"].clip(0, 100)
+    base["decisao"] = base["score_gestor"].apply(definir_decisao)
 
     base = base.sort_values(
-        "score_final_carteira",
+        "score_gestor",
         ascending=False
     ).reset_index(drop=True)
 
-    base = base.head(20)
+    base.insert(0, "ranking_carteira", base.index + 1)
 
-    base = calcular_peso_por_score(base)
+    base = calcular_peso_por_score(base, "score_gestor")
     base = limitar_peso_maximo(base, peso_maximo=0.10)
 
     Path("output").mkdir(exist_ok=True)
