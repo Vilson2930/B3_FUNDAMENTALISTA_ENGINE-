@@ -1,11 +1,10 @@
 # ============================================================
 # technical_engine.py
 # B3 FUNDAMENTALISTA ENGINE
-# Análise Técnica Institucional — TOP 20 Premium
+# Análise Técnica Institucional — Download em Lote
 # ============================================================
 
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -23,39 +22,74 @@ def carregar_top20():
     df = pd.read_csv(INPUT_FILE)
 
     if "ticker" not in df.columns:
-        print("Coluna ticker não encontrada.")
+        print("Coluna ticker não encontrada em top20_premium.csv.")
         return pd.DataFrame()
 
-    return df.head(20)
+    return df.head(20).copy()
 
 
-def baixar_precos(ticker):
-    ticker_yahoo = f"{ticker}.SA"
+def preparar_tickers(top20):
+    tickers = []
+
+    for ticker in top20["ticker"].dropna().unique():
+        ticker = str(ticker).strip().upper()
+
+        if not ticker.endswith(".SA"):
+            ticker = f"{ticker}.SA"
+
+        tickers.append(ticker)
+
+    return tickers
+
+
+def baixar_precos_lote(tickers):
+    if not tickers:
+        return pd.DataFrame()
 
     try:
-        df = yf.download(
-            ticker_yahoo,
+        dados = yf.download(
+            tickers=tickers,
             period="1y",
             interval="1d",
             auto_adjust=True,
             progress=False,
-            threads=False,
-            timeout=20
+            threads=True,
+            group_by="ticker",
+            timeout=30
         )
+
+        return dados
+
     except Exception as erro:
-        print(f"{ticker}: erro no download: {erro}")
+        print(f"Erro ao baixar dados em lote: {erro}")
         return pd.DataFrame()
 
-    if df.empty:
-        print(f"{ticker}: sem dados.")
+
+def extrair_dados_ticker(dados, ticker_yahoo):
+    if dados.empty:
         return pd.DataFrame()
 
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    try:
+        if isinstance(dados.columns, pd.MultiIndex):
+            if ticker_yahoo not in dados.columns.get_level_values(0):
+                return pd.DataFrame()
 
-    df = df.reset_index()
+            df = dados[ticker_yahoo].copy()
 
-    return df
+        else:
+            df = dados.copy()
+
+        df = df.dropna(how="all")
+
+        if df.empty:
+            return pd.DataFrame()
+
+        df = df.reset_index()
+
+        return df
+
+    except Exception:
+        return pd.DataFrame()
 
 
 def calcular_rsi(close, periodo=14):
@@ -69,7 +103,9 @@ def calcular_rsi(close, periodo=14):
 
     rs = media_ganho / media_perda
 
-    return 100 - (100 / (1 + rs))
+    rsi = 100 - (100 / (1 + rs))
+
+    return rsi
 
 
 def calcular_macd(close):
@@ -77,10 +113,10 @@ def calcular_macd(close):
     ema26 = close.ewm(span=26, adjust=False).mean()
 
     macd = ema12 - ema26
-    sinal = macd.ewm(span=9, adjust=False).mean()
-    histograma = macd - sinal
+    macd_sinal = macd.ewm(span=9, adjust=False).mean()
+    macd_hist = macd - macd_sinal
 
-    return macd, sinal, histograma
+    return macd, macd_sinal, macd_hist
 
 
 def calcular_atr(df, periodo=14):
@@ -94,7 +130,10 @@ def calcular_atr(df, periodo=14):
     tr2 = (high - fechamento_anterior).abs()
     tr3 = (low - fechamento_anterior).abs()
 
-    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    true_range = pd.concat(
+        [tr1, tr2, tr3],
+        axis=1
+    ).max(axis=1)
 
     return true_range.rolling(periodo).mean()
 
@@ -102,9 +141,9 @@ def calcular_atr(df, periodo=14):
 def calcular_indicadores(df):
     df = df.copy()
 
-    colunas_obrigatorias = ["Close", "High", "Low", "Volume"]
+    obrigatorias = ["Close", "High", "Low", "Volume"]
 
-    for coluna in colunas_obrigatorias:
+    for coluna in obrigatorias:
         if coluna not in df.columns:
             return pd.DataFrame()
 
@@ -118,6 +157,7 @@ def calcular_indicadores(df):
     df["rsi14"] = calcular_rsi(close)
 
     macd, macd_sinal, macd_hist = calcular_macd(close)
+
     df["macd"] = macd
     df["macd_sinal"] = macd_sinal
     df["macd_hist"] = macd_hist
@@ -194,10 +234,13 @@ def calcular_score_tecnico(row):
 def classificar_sinal(score):
     if score >= 80:
         return "COMPRA FORTE"
+
     if score >= 65:
         return "COMPRA"
+
     if score >= 50:
         return "AGUARDAR"
+
     if score >= 35:
         return "FRACO"
 
@@ -211,30 +254,46 @@ def analisar_top20():
         print("Nenhuma ação para análise técnica.")
         return pd.DataFrame()
 
+    tickers_yahoo = preparar_tickers(top20)
+
+    print("Baixando dados técnicos em lote...")
+    print(", ".join(tickers_yahoo))
+
+    dados = baixar_precos_lote(tickers_yahoo)
+
+    if dados.empty:
+        print("Nenhum dado técnico foi baixado.")
+        return pd.DataFrame()
+
     resultados = []
 
     for _, empresa in top20.iterrows():
-        ticker = empresa["ticker"]
+        ticker_original = str(empresa["ticker"]).strip().upper()
+        ticker_yahoo = (
+            ticker_original
+            if ticker_original.endswith(".SA")
+            else f"{ticker_original}.SA"
+        )
 
-        print(f"Analisando técnico: {ticker}")
+        print(f"Calculando técnico: {ticker_original}")
 
-        precos = baixar_precos(ticker)
+        df_ticker = extrair_dados_ticker(dados, ticker_yahoo)
 
-        if precos.empty or len(precos) < 200:
-            print(f"{ticker}: dados insuficientes.")
+        if df_ticker.empty or len(df_ticker) < 200:
+            print(f"{ticker_original}: dados insuficientes.")
             continue
 
-        precos = calcular_indicadores(precos)
+        df_ticker = calcular_indicadores(df_ticker)
 
-        if precos.empty:
-            print(f"{ticker}: falha ao calcular indicadores.")
+        if df_ticker.empty:
+            print(f"{ticker_original}: falha nos indicadores.")
             continue
 
-        ultima = precos.iloc[-1]
+        ultima = df_ticker.iloc[-1]
         score_tecnico = calcular_score_tecnico(ultima)
 
         resultados.append({
-            "ticker": ticker,
+            "ticker": ticker_original,
             "empresa": empresa.get("empresa", ""),
             "setor": empresa.get("setor", ""),
             "score_fundamental": empresa.get("score_balanceado", np.nan),
