@@ -41,9 +41,7 @@ def calcular_peso_por_score(df, score_col="score_final_carteira"):
 def limitar_peso_maximo(df, peso_maximo=0.10):
     df = df.copy()
 
-    df["peso_sugerido"] = df["peso_sugerido"].clip(
-        upper=peso_maximo
-    )
+    df["peso_sugerido"] = df["peso_sugerido"].clip(upper=peso_maximo)
 
     total = df["peso_sugerido"].sum()
 
@@ -74,13 +72,10 @@ def montar_carteira():
             "rsi14",
             "retorno_20d",
             "dist_mm200",
-            "volume_forca"
+            "volume_forca",
         ]
 
-        cols_tecnico = [
-            col for col in cols_tecnico
-            if col in tecnico.columns
-        ]
+        cols_tecnico = [col for col in cols_tecnico if col in tecnico.columns]
 
         base = base.merge(
             tecnico[cols_tecnico],
@@ -98,19 +93,49 @@ def montar_carteira():
     if "score_tecnico" not in base.columns:
         base["score_tecnico"] = 50
 
-    base["score_tecnico"] = base["score_tecnico"].fillna(50)
+    if "sinal_tecnico" not in base.columns:
+        base["sinal_tecnico"] = "NEUTRO"
 
-    base["bonus_diversificacao"] = np.where(
-        base["selecionada_diversificacao"],
-        100,
-        50
+    if "score_balanceado" not in base.columns:
+        base["score_balanceado"] = 50
+
+    if "moat_score" not in base.columns:
+        base["moat_score"] = 50
+
+    base["score_tecnico"] = pd.to_numeric(
+        base["score_tecnico"], errors="coerce"
+    ).fillna(50)
+
+    base["score_balanceado"] = pd.to_numeric(
+        base["score_balanceado"], errors="coerce"
+    ).fillna(50)
+
+    base["moat_score"] = pd.to_numeric(
+        base["moat_score"], errors="coerce"
+    ).fillna(50)
+
+    sinal = base["sinal_tecnico"].astype(str).str.upper()
+
+    base["ajuste_tecnico"] = np.select(
+        [
+            sinal.str.contains("COMPRA FORTE", na=False),
+            sinal.eq("COMPRA"),
+            sinal.str.contains("AGUARDAR", na=False),
+            sinal.str.contains("FRACO", na=False),
+            sinal.str.contains("EVITAR", na=False),
+        ],
+        [5, 2, -3, -12, -20],
+        default=0,
     )
 
     base["score_final_carteira"] = (
-        base["score_balanceado"].fillna(50) * 0.60 +
-        base["score_tecnico"].fillna(50) * 0.25 +
-        base["bonus_diversificacao"] * 0.15
+        base["score_balanceado"] * 0.50
+        + base["score_tecnico"] * 0.35
+        + base["moat_score"] * 0.15
+        + base["ajuste_tecnico"]
     )
+
+    base["score_final_carteira"] = base["score_final_carteira"].clip(0, 100)
 
     base = base.sort_values(
         "score_final_carteira",
@@ -134,3 +159,7 @@ def montar_carteira():
     print(OUTPUT_FILE)
 
     return base
+
+
+if __name__ == "__main__":
+    montar_carteira()
