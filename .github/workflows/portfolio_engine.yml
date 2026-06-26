@@ -1,265 +1,50 @@
-# ============================================================
-# portfolio_engine.py
-# B3 FUNDAMENTALISTA ENGINE
-# Gestor Institucional de Carteira
-# ============================================================
-
-from pathlib import Path
-import numpy as np
-import pandas as pd
-
-
-INPUT_TECNICO = Path("output/top20_tecnico.csv")
-OUTPUT_FILE = Path("output/carteira_institucional.csv")
-
-
-def carregar_tecnico():
-    if not INPUT_TECNICO.exists():
-        print("Arquivo output/top20_tecnico.csv não encontrado.")
-        return pd.DataFrame()
-
-    df = pd.read_csv(INPUT_TECNICO)
-
-    if "ticker" not in df.columns:
-        print("Coluna ticker não encontrada.")
-        return pd.DataFrame()
-
-    return df.copy()
-
-
-def normalizar_colunas(df):
-    df = df.copy()
-
-    for coluna in [
-        "score_fundamental",
-        "score_tecnico",
-        "moat_score",
-        "score_final",
-        "volume_forca",
-        "retorno_20d",
-        "dist_mm200",
-        "rsi14",
-    ]:
-        if coluna not in df.columns:
-            df[coluna] = np.nan
-
-    if "setor" not in df.columns:
-        df["setor"] = "SEM SETOR"
-
-    df["setor"] = df["setor"].fillna("SEM SETOR")
-
-    df["score_fundamental"] = df["score_fundamental"].fillna(50)
-    df["score_tecnico"] = df["score_tecnico"].fillna(50)
-    df["moat_score"] = df["moat_score"].fillna(50)
-
-    return df
-
-
-def aplicar_score_gestor(df):
-    df = df.copy()
-
-    # Score técnico negativo penaliza a carteira
-    penalidade_tecnica = np.where(
-        df["score_tecnico"] < 35,
-        -15,
-        np.where(df["score_tecnico"] < 50, -8, 0)
-    )
-
-    # Bônus para empresas com técnico forte
-    bonus_tecnico = np.where(
-        df["score_tecnico"] >= 80,
-        8,
-        np.where(df["score_tecnico"] >= 65, 4, 0)
-    )
-
-    df["score_gestor"] = (
-        df["score_fundamental"] * 0.50 +
-        df["score_tecnico"] * 0.30 +
-        df["moat_score"] * 0.15 +
-        bonus_tecnico +
-        penalidade_tecnica
-    )
-
-    df["score_gestor"] = df["score_gestor"].clip(0, 100)
-
-    return df
-
-
-def aplicar_limite_setorial(
-    df,
-    score_col="score_gestor",
-    setor_col="setor",
-    top_n=10,
-    limite_por_setor=2
-):
-    df = df.copy()
-
-    df = df.sort_values(
-        score_col,
-        ascending=False
-    )
-
-    selecionadas = []
-    contador_setor = {}
-
-    for _, row in df.iterrows():
-        setor = row.get(setor_col, "SEM SETOR")
-
-        contador_setor[setor] = contador_setor.get(setor, 0)
-
-        if contador_setor[setor] >= limite_por_setor:
-            continue
-
-        selecionadas.append(row)
-        contador_setor[setor] += 1
-
-        if len(selecionadas) >= top_n:
-            break
-
-    return pd.DataFrame(selecionadas).reset_index(drop=True)
-
-
-def calcular_pesos(df):
-    df = df.copy()
-
-    total_score = df["score_gestor"].sum()
-
-    if total_score <= 0:
-        df["peso_sugerido"] = 1 / len(df)
-    else:
-        df["peso_sugerido"] = df["score_gestor"] / total_score
-
-    # Limite máximo de 12% por ativo
-    df["peso_sugerido"] = df["peso_sugerido"].clip(upper=0.12)
-
-    soma = df["peso_sugerido"].sum()
-
-    if soma > 0:
-        df["peso_sugerido"] = df["peso_sugerido"] / soma
-
-    df["peso_sugerido_pct"] = df["peso_sugerido"] * 100
-
-    return df
-
-
-def classificar_decisao(row):
-    score_gestor = row.get("score_gestor", 0)
-    score_tecnico = row.get("score_tecnico", 0)
-
-    if score_gestor >= 80 and score_tecnico >= 65:
-        return "COMPRAR AGORA"
-
-    if score_gestor >= 75 and score_tecnico >= 50:
-        return "COMPRAR PARCIAL"
-
-    if score_gestor >= 70 and score_tecnico < 50:
-        return "BOA EMPRESA, AGUARDAR ENTRADA"
-
-    if score_gestor >= 65:
-        return "ACOMPANHAR"
-
-    return "NÃO PRIORIZAR"
-
-
-def montar_motivo(row):
-    motivos = []
-
-    if row.get("score_fundamental", 0) >= 75:
-        motivos.append("fundamentos fortes")
-
-    if row.get("moat_score", 0) >= 70:
-        motivos.append("moat relevante")
-
-    if row.get("score_tecnico", 0) >= 65:
-        motivos.append("momento técnico favorável")
-    elif row.get("score_tecnico", 0) < 50:
-        motivos.append("momento técnico fraco")
-
-    if row.get("dist_mm200", 0) > 0:
-        motivos.append("preço acima da MM200")
-
-    if row.get("volume_forca", 0) >= 1:
-        motivos.append("volume acima da média")
-
-    if not motivos:
-        motivos.append("equilíbrio moderado entre fundamentos e preço")
-
-    return ", ".join(motivos)
-
-
-def montar_carteira():
-    df = carregar_tecnico()
-
-    if df.empty:
-        print("Nenhuma base técnica para montar carteira.")
-        return df
-
-    df = normalizar_colunas(df)
-    df = aplicar_score_gestor(df)
-
-    carteira = aplicar_limite_setorial(
-        df,
-        score_col="score_gestor",
-        setor_col="setor",
-        top_n=10,
-        limite_por_setor=2
-    )
-
-    if carteira.empty:
-        print("Carteira vazia após filtro setorial.")
-        return carteira
-
-    carteira = calcular_pesos(carteira)
-
-    carteira["decisao"] = carteira.apply(
-        classificar_decisao,
-        axis=1
-    )
-
-    carteira["motivo"] = carteira.apply(
-        montar_motivo,
-        axis=1
-    )
-
-    carteira["ranking"] = range(1, len(carteira) + 1)
-
-    colunas_finais = [
-        "ranking",
-        "ticker",
-        "empresa",
-        "setor",
-        "rating",
-        "moat_score",
-        "score_fundamental",
-        "score_tecnico",
-        "score_gestor",
-        "sinal_tecnico",
-        "decisao",
-        "peso_sugerido_pct",
-        "preco",
-        "rsi14",
-        "dist_mm200",
-        "retorno_20d",
-        "volume_forca",
-        "motivo",
-    ]
-
-    colunas_finais = [
-        col for col in colunas_finais
-        if col in carteira.columns
-    ]
-
-    carteira = carteira[colunas_finais]
-
-    Path("output").mkdir(exist_ok=True)
-
-    carteira.to_csv(
-        OUTPUT_FILE,
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    print("Carteira institucional salva:")
-    print(OUTPUT_FILE)
-
-    return carteira
+name: Run B3 Portfolio Engine
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-portfolio:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Fundamental Engine
+        run: |
+          python main.py
+
+      - name: Run Technical Engine
+        timeout-minutes: 4
+        run: |
+          python -c "from engine.technical_engine import analisar_top20; analisar_top20()"
+
+      - name: Run Portfolio Engine
+        run: |
+          python -c "from engine.portfolio_engine import montar_carteira; montar_carteira()"
+
+      - name: Verificar arquivos gerados
+        if: always()
+        run: |
+          echo "Arquivos em output:"
+          ls -la output || true
+
+      - name: Upload Portfolio Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: b3-portfolio-report
+          path: output/**
+          if-no-files-found: warn
+          retention-days: 30
