@@ -11,34 +11,27 @@ from engine.cashflow import calcular_cashflow, score_cashflow
 from engine.valuation import calcular_valuation, calcular_score_valuation
 from engine.moat import calcular_moat, aplicar_classificacao_moat
 from engine.rating import aplicar_rating
-from engine.ranking import gerar_ranking_institucional
 from engine.utils import limitar_por_setor
 
 
 def gerar_rankings(base):
     base = base.copy()
 
-    # Rentabilidade
     base = calcular_profitability(base)
     base = score_profitability(base)
 
-    # Crescimento
     base = calcular_growth(base)
     base = score_growth(base)
 
-    # Endividamento
     base = calcular_leverage(base)
     base = score_leverage(base)
 
-    # Fluxo de caixa
     base = calcular_cashflow(base)
     base = score_cashflow(base)
 
-    # Valuation
     base = calcular_valuation(base)
     base = calcular_score_valuation(base)
 
-    # Score balanceado institucional
     base["score_balanceado"] = (
         base["score_profitability"].fillna(50) * 0.25 +
         base["score_growth"].fillna(50) * 0.20 +
@@ -47,17 +40,12 @@ def gerar_rankings(base):
         base["score_valuation"].fillna(50) * 0.30
     )
 
-    # Moat Score
     base = calcular_moat(base)
     base = aplicar_classificacao_moat(base)
-
-    # Rating institucional
     base = aplicar_rating(base)
 
-    # Rankings principais
-    rankings = gerar_ranking_institucional(base)
+    rankings = {}
 
-    # Compatibilidade com report.py atual
     rankings["qualidade"] = limitar_por_setor(
         base,
         "score_profitability",
@@ -79,11 +67,25 @@ def gerar_rankings(base):
         top_n=30
     )
 
+    rankings["moat"] = limitar_por_setor(
+        base,
+        "moat_score",
+        limite_setor=3,
+        top_n=30
+    )
+
     rankings["balanceado"] = limitar_por_setor(
         base,
         "score_balanceado",
         limite_setor=3,
         top_n=30
+    )
+
+    rankings["premium"] = limitar_por_setor(
+        base,
+        "score_balanceado",
+        limite_setor=2,
+        top_n=20
     )
 
     rankings["base"] = base
