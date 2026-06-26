@@ -1,12 +1,13 @@
 # ============================================================
 # technical_engine.py
 # B3 FUNDAMENTALISTA ENGINE
-# Camada Técnica Independente — TOP 20 Premium
+# Análise Técnica Institucional — TOP 20 Premium
 # ============================================================
 
 from pathlib import Path
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 import yfinance as yf
 
 
@@ -16,7 +17,7 @@ OUTPUT_FILE = Path("output/top20_tecnico.csv")
 
 def carregar_top20():
     if not INPUT_FILE.exists():
-        print("Arquivo top20_premium.csv não encontrado.")
+        print("Arquivo output/top20_premium.csv não encontrado.")
         return pd.DataFrame()
 
     df = pd.read_csv(INPUT_FILE)
@@ -42,7 +43,7 @@ def baixar_precos(ticker):
             timeout=20
         )
     except Exception as erro:
-        print(f"{ticker}: erro no download - {erro}")
+        print(f"{ticker}: erro no download: {erro}")
         return pd.DataFrame()
 
     if df.empty:
@@ -67,9 +68,8 @@ def calcular_rsi(close, periodo=14):
     media_perda = perda.rolling(periodo).mean()
 
     rs = media_ganho / media_perda
-    rsi = 100 - (100 / (1 + rs))
 
-    return rsi
+    return 100 - (100 / (1 + rs))
 
 
 def calcular_macd(close):
@@ -83,11 +83,30 @@ def calcular_macd(close):
     return macd, sinal, histograma
 
 
-def calcular_tecnicos(df):
+def calcular_atr(df, periodo=14):
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+
+    fechamento_anterior = close.shift(1)
+
+    tr1 = high - low
+    tr2 = (high - fechamento_anterior).abs()
+    tr3 = (low - fechamento_anterior).abs()
+
+    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    return true_range.rolling(periodo).mean()
+
+
+def calcular_indicadores(df):
     df = df.copy()
 
-    if "Close" not in df.columns or "Volume" not in df.columns:
-        return pd.DataFrame()
+    colunas_obrigatorias = ["Close", "High", "Low", "Volume"]
+
+    for coluna in colunas_obrigatorias:
+        if coluna not in df.columns:
+            return pd.DataFrame()
 
     close = df["Close"]
     volume = df["Volume"]
@@ -98,16 +117,23 @@ def calcular_tecnicos(df):
 
     df["rsi14"] = calcular_rsi(close)
 
-    macd, sinal, hist = calcular_macd(close)
+    macd, macd_sinal, macd_hist = calcular_macd(close)
     df["macd"] = macd
-    df["macd_sinal"] = sinal
-    df["macd_hist"] = hist
+    df["macd_sinal"] = macd_sinal
+    df["macd_hist"] = macd_hist
+
+    df["atr14"] = calcular_atr(df)
 
     df["retorno_20d"] = close.pct_change(20)
     df["dist_mm200"] = (close / df["mm200"]) - 1
 
     df["volume_medio_20d"] = volume.rolling(20).mean()
     df["volume_forca"] = volume / df["volume_medio_20d"]
+
+    df["tendencia_alta"] = (
+        (close > df["mm200"]) &
+        (df["mm50"] > df["mm200"])
+    )
 
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
@@ -124,26 +150,34 @@ def calcular_score_tecnico(row):
     rsi = row.get("rsi14", np.nan)
     macd = row.get("macd", np.nan)
     macd_sinal = row.get("macd_sinal", np.nan)
+    macd_hist = row.get("macd_hist", np.nan)
     retorno_20d = row.get("retorno_20d", np.nan)
     dist_mm200 = row.get("dist_mm200", np.nan)
     volume_forca = row.get("volume_forca", np.nan)
+    tendencia_alta = row.get("tendencia_alta", False)
 
-    if pd.notna(preco) and pd.notna(mm200) and preco > mm200:
-        score += 20
+    if bool(tendencia_alta):
+        score += 25
 
-    if pd.notna(preco) and pd.notna(mm50) and preco > mm50:
-        score += 15
+    if pd.notna(preco) and pd.notna(mm20) and preco > mm20:
+        score += 10
 
     if pd.notna(mm20) and pd.notna(mm50) and mm20 > mm50:
-        score += 15
+        score += 10
 
-    if pd.notna(rsi) and 45 <= rsi <= 65:
-        score += 15
-    elif pd.notna(rsi) and 35 <= rsi < 45:
-        score += 8
+    if pd.notna(rsi):
+        if 45 <= rsi <= 65:
+            score += 20
+        elif 35 <= rsi < 45:
+            score += 10
+        elif 65 < rsi <= 75:
+            score += 8
 
     if pd.notna(macd) and pd.notna(macd_sinal) and macd > macd_sinal:
         score += 15
+
+    if pd.notna(macd_hist) and macd_hist > 0:
+        score += 5
 
     if pd.notna(retorno_20d) and retorno_20d > 0:
         score += 10
@@ -154,7 +188,7 @@ def calcular_score_tecnico(row):
     if pd.notna(volume_forca) and volume_forca >= 1:
         score += 5
 
-    return score
+    return min(score, 100)
 
 
 def classificar_sinal(score):
@@ -166,6 +200,7 @@ def classificar_sinal(score):
         return "AGUARDAR"
     if score >= 35:
         return "FRACO"
+
     return "EVITAR"
 
 
@@ -189,10 +224,10 @@ def analisar_top20():
             print(f"{ticker}: dados insuficientes.")
             continue
 
-        precos = calcular_tecnicos(precos)
+        precos = calcular_indicadores(precos)
 
         if precos.empty:
-            print(f"{ticker}: falha nos indicadores.")
+            print(f"{ticker}: falha ao calcular indicadores.")
             continue
 
         ultima = precos.iloc[-1]
@@ -201,9 +236,11 @@ def analisar_top20():
         resultados.append({
             "ticker": ticker,
             "empresa": empresa.get("empresa", ""),
+            "setor": empresa.get("setor", ""),
             "score_fundamental": empresa.get("score_balanceado", np.nan),
             "rating": empresa.get("rating", ""),
             "moat_score": empresa.get("moat_score", np.nan),
+
             "preco": ultima.get("Close", np.nan),
             "mm20": ultima.get("mm20", np.nan),
             "mm50": ultima.get("mm50", np.nan),
@@ -211,9 +248,13 @@ def analisar_top20():
             "rsi14": ultima.get("rsi14", np.nan),
             "macd": ultima.get("macd", np.nan),
             "macd_sinal": ultima.get("macd_sinal", np.nan),
+            "macd_hist": ultima.get("macd_hist", np.nan),
+            "atr14": ultima.get("atr14", np.nan),
             "retorno_20d": ultima.get("retorno_20d", np.nan),
             "dist_mm200": ultima.get("dist_mm200", np.nan),
             "volume_forca": ultima.get("volume_forca", np.nan),
+            "tendencia_alta": ultima.get("tendencia_alta", False),
+
             "score_tecnico": score_tecnico,
             "sinal_tecnico": classificar_sinal(score_tecnico),
         })
@@ -242,11 +283,7 @@ def analisar_top20():
         encoding="utf-8-sig"
     )
 
-    print("\nArquivo técnico salvo:")
+    print("Arquivo técnico salvo:")
     print(OUTPUT_FILE)
 
     return resultado
-
-
-if __name__ == "__main__":
-    analisar_top20()
