@@ -17,7 +17,10 @@ OUTPUT_FILE = Path("output/carteira_institucional.csv")
 
 def carregar_csv(caminho):
     if caminho.exists():
-        return pd.read_csv(caminho)
+        try:
+            return pd.read_csv(caminho, sep=";", decimal=",")
+        except Exception:
+            return pd.read_csv(caminho)
 
     return pd.DataFrame()
 
@@ -40,10 +43,7 @@ def calcular_peso_por_score(df, score_col="score_final_carteira"):
 def limitar_peso_maximo(df, peso_maximo=0.10):
     df = df.copy()
 
-    excesso = 0
-
     while True:
-
         acima = df["peso_sugerido"] > peso_maximo
 
         if not acima.any():
@@ -60,16 +60,21 @@ def limitar_peso_maximo(df, peso_maximo=0.10):
         if abaixo.sum() == 0:
             break
 
+        soma_abaixo = df.loc[abaixo, "peso_sugerido"].sum()
+
+        if soma_abaixo <= 0:
+            break
+
         proporcao = (
-            df.loc[abaixo, "peso_sugerido"]
-            / df.loc[abaixo, "peso_sugerido"].sum()
+            df.loc[abaixo, "peso_sugerido"] / soma_abaixo
         )
 
         df.loc[abaixo, "peso_sugerido"] += excesso * proporcao
 
-    df["peso_sugerido"] = (
-        df["peso_sugerido"] / df["peso_sugerido"].sum()
-    )
+    total = df["peso_sugerido"].sum()
+
+    if total > 0:
+        df["peso_sugerido"] = df["peso_sugerido"] / total
 
     df["peso_sugerido_pct"] = df["peso_sugerido"] * 100
 
@@ -87,10 +92,6 @@ def montar_carteira():
         return pd.DataFrame()
 
     base = premium.copy()
-
-    # -------------------------------------------------------
-    # Junta Análise Técnica
-    # -------------------------------------------------------
 
     if not tecnico.empty and "ticker" in tecnico.columns:
 
@@ -115,56 +116,36 @@ def montar_carteira():
             how="left"
         )
 
-    # -------------------------------------------------------
-    # Apenas informa se passou pela diversificação
-    # -------------------------------------------------------
-
     if (
         not diversificado.empty
         and "ticker" in diversificado.columns
     ):
-
         base["selecionada_diversificacao"] = (
-            base["ticker"].isin(
-                diversificado["ticker"]
-            )
+            base["ticker"].isin(diversificado["ticker"])
         )
-
     else:
-
         base["selecionada_diversificacao"] = True
-
-    # -------------------------------------------------------
-    # Score Técnico
-    # -------------------------------------------------------
 
     if "score_tecnico" not in base.columns:
         base["score_tecnico"] = 50
 
-    base["score_tecnico"] = (
-        pd.to_numeric(
-            base["score_tecnico"],
-            errors="coerce"
-        )
-        .fillna(50)
-    )
+    if "score_balanceado" not in base.columns:
+        base["score_balanceado"] = 50
 
-    # -------------------------------------------------------
-    # Score Final Institucional
-    #
-    # 70% Fundamentalista
-    # 30% Técnico
-    # -------------------------------------------------------
+    base["score_tecnico"] = pd.to_numeric(
+        base["score_tecnico"],
+        errors="coerce"
+    ).fillna(50)
+
+    base["score_balanceado"] = pd.to_numeric(
+        base["score_balanceado"],
+        errors="coerce"
+    ).fillna(50)
 
     base["score_final_carteira"] = (
-
-        base["score_balanceado"].fillna(50) * 0.70 +
-
+        base["score_balanceado"] * 0.70 +
         base["score_tecnico"] * 0.30
-
     )
-
-    # -------------------------------------------------------
 
     base = base.sort_values(
         "score_final_carteira",
@@ -174,17 +155,15 @@ def montar_carteira():
     base = base.head(20)
 
     base = calcular_peso_por_score(base)
-
-    base = limitar_peso_maximo(
-        base,
-        peso_maximo=0.10
-    )
+    base = limitar_peso_maximo(base, peso_maximo=0.10)
 
     Path("output").mkdir(exist_ok=True)
 
     base.to_csv(
         OUTPUT_FILE,
         index=False,
+        sep=";",
+        decimal=",",
         encoding="utf-8-sig"
     )
 
@@ -192,17 +171,20 @@ def montar_carteira():
     print("CARTEIRA INSTITUCIONAL")
     print("=" * 70)
 
-    print(
-        base[
-            [
-                "ticker",
-                "score_balanceado",
-                "score_tecnico",
-                "score_final_carteira",
-                "peso_sugerido_pct"
-            ]
-        ]
-    )
+    colunas_print = [
+        "ticker",
+        "score_balanceado",
+        "score_tecnico",
+        "score_final_carteira",
+        "peso_sugerido_pct"
+    ]
+
+    colunas_print = [
+        c for c in colunas_print
+        if c in base.columns
+    ]
+
+    print(base[colunas_print])
 
     print("\nCarteira institucional salva em:")
     print(OUTPUT_FILE)
