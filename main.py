@@ -11,7 +11,6 @@ from engine.report import gerar_relatorio
 
 
 def main():
-
     print("=" * 80)
     print("B3 FUNDAMENTALISTA ENGINE")
     print("=" * 80)
@@ -25,20 +24,17 @@ def main():
     print("Dados CVM carregados.")
 
     print("\n[3/5] Calculando fundamentos...")
-    base_fundamentalista = construir_base_fundamentalista(
-        df_b3=df_b3,
-        dados_cvm=dados_cvm
-    )
-    print(f"Empresas analisadas: {len(base_fundamentalista)}")
+    base = construir_base_fundamentalista(df_b3=df_b3, dados_cvm=dados_cvm)
+    print(f"Empresas analisadas: {len(base)}")
 
-    print("\n[4/5] Gerando rankings fundamentalistas...")
-    rankings = gerar_rankings(base_fundamentalista)
+    print("\n[4/5] Gerando rankings...")
+    rankings = gerar_rankings(base)
     print("Rankings gerados.")
 
-    print("\n[5/5] Gerando relatório fundamentalista...")
+    print("\n[5/5] Gerando relatório...")
     gerar_relatorio(rankings)
+    print("Relatório gerado.")
 
-    print("\n")
     print("=" * 80)
     print("EXECUÇÃO FINALIZADA")
     print("=" * 80)
