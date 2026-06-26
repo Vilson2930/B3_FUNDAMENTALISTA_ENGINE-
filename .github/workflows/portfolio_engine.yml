@@ -1,50 +1,232 @@
-name: Run B3 Portfolio Engine
+import pandas as pd
+from pathlib import Path
 
-on:
-  workflow_dispatch:
+OUTPUT_DIR = Path("output")
 
-jobs:
-  run-portfolio:
-    runs-on: ubuntu-latest
+INPUT_FILE = OUTPUT_DIR / "top20_tecnico.csv"
+OUTPUT_FILE = OUTPUT_DIR / "carteira_institucional.csv"
+REPORT_FILE = OUTPUT_DIR / "portfolio_report.txt"
 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+MAX_EMPRESAS_CARTEIRA = 15
+MAX_EMPRESAS_POR_SETOR = 2
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+PESO_FUNDAMENTALISTA = 0.50
+PESO_TECNICO = 0.30
+PESO_MOAT = 0.15
+PESO_DIVERSIFICACAO = 0.05
 
-      - name: Run Fundamental Engine
-        run: |
-          python main.py
 
-      - name: Run Technical Engine
-        timeout-minutes: 4
-        run: |
-          python -c "from engine.technical_engine import analisar_top20; analisar_top20()"
+def normalizar_colunas(df):
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
 
-      - name: Run Portfolio Engine
-        run: |
-          python -c "from engine.portfolio_engine import montar_carteira; montar_carteira()"
 
-      - name: Verificar arquivos gerados
-        if: always()
-        run: |
-          echo "Arquivos em output:"
-          ls -la output || true
+def moat_para_score(valor):
+    texto = str(valor).upper()
 
-      - name: Upload Portfolio Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: b3-portfolio-report
-          path: output/**
-          if-no-files-found: warn
-          retention-days: 30
+    if "FORTE" in texto:
+        return 90
+    if "BOM" in texto:
+        return 75
+    if "MODERADO" in texto:
+        return 60
+    if "FRACO" in texto:
+        return 40
+
+    try:
+        return float(valor)
+    except Exception:
+        return 50
+
+
+def penalidade_tecnica(sinal):
+    sinal = str(sinal).upper()
+
+    if "EVITAR" in sinal:
+        return -10
+    if "FRACO" in sinal:
+        return -6
+    if "AGUARDAR" in sinal:
+        return -2
+    if "COMPRA FORTE" in sinal:
+        return 6
+    if "COMPRA" in sinal:
+        return 3
+
+    return 0
+
+
+def calcular_score_gestor(df):
+    df["score_balanceado"] = pd.to_numeric(df["score_balanceado"], errors="coerce").fillna(0)
+    df["score_tecnico"] = pd.to_numeric(df["score_tecnico"], errors="coerce").fillna(0)
+
+    if "moat_score" in df.columns:
+        df["moat_score_calc"] = pd.to_numeric(df["moat_score"], errors="coerce")
+        df["moat_score_calc"] = df["moat_score_calc"].fillna(
+            df.get("moat_classificacao", "").apply(moat_para_score)
+        )
+    else:
+        df["moat_score_calc"] = df.get("moat_classificacao", "").apply(moat_para_score)
+
+    df["score_diversificacao"] = 100
+
+    df["penalidade_tecnica"] = df["sinal_tecnico"].apply(penalidade_tecnica)
+
+    df["score_gestor"] = (
+        df["score_balanceado"] * PESO_FUNDAMENTALISTA
+        + df["score_tecnico"] * PESO_TECNICO
+        + df["moat_score_calc"] * PESO_MOAT
+        + df["score_diversificacao"] * PESO_DIVERSIFICACAO
+        + df["penalidade_tecnica"]
+    )
+
+    df["score_gestor"] = df["score_gestor"].clip(lower=0, upper=100)
+
+    return df
+
+
+def aplicar_diversificacao(df):
+    selecionadas = []
+    contador_setor = {}
+
+    df = df.sort_values("score_gestor", ascending=False).copy()
+
+    for _, row in df.iterrows():
+        setor = str(row.get("setor", "SEM_SETOR"))
+
+        if contador_setor.get(setor, 0) >= MAX_EMPRESAS_POR_SETOR:
+            continue
+
+        selecionadas.append(row)
+        contador_setor[setor] = contador_setor.get(setor, 0) + 1
+
+        if len(selecionadas) >= MAX_EMPRESAS_CARTEIRA:
+            break
+
+    carteira = pd.DataFrame(selecionadas)
+
+    return carteira
+
+
+def calcular_pesos(carteira):
+    carteira = carteira.copy()
+
+    soma_scores = carteira["score_gestor"].sum()
+
+    if soma_scores == 0:
+        carteira["peso_sugerido"] = 1 / len(carteira)
+    else:
+        carteira["peso_sugerido"] = carteira["score_gestor"] / soma_scores
+
+    carteira["peso_sugerido_pct"] = carteira["peso_sugerido"] * 100
+
+    return carteira
+
+
+def definir_decisao(row):
+    score = row["score_gestor"]
+    tecnico = str(row.get("sinal_tecnico", "")).upper()
+
+    if score >= 80 and ("COMPRA" in tecnico):
+        return "COMPRAR AGORA"
+
+    if score >= 70 and tecnico not in ["EVITAR", "FRACO"]:
+        return "COMPRAR PARCIAL"
+
+    if score >= 60:
+        return "AGUARDAR"
+
+    return "NÃO PRIORIZAR"
+
+
+def gerar_motivo(row):
+    motivos = []
+
+    if row["score_balanceado"] >= 75:
+        motivos.append("fundamentos fortes")
+
+    if row["score_tecnico"] >= 70:
+        motivos.append("momento técnico favorável")
+    elif row["score_tecnico"] < 50:
+        motivos.append("momento técnico fraco penalizou o score")
+
+    if row["moat_score_calc"] >= 75:
+        motivos.append("moat relevante")
+
+    if row["score_gestor"] >= 80:
+        motivos.append("score gestor elevado")
+
+    if not motivos:
+        motivos.append("empresa aprovada por equilíbrio quantitativo")
+
+    return "; ".join(motivos)
+
+
+def montar_carteira():
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    if not INPUT_FILE.exists():
+        raise FileNotFoundError(f"Arquivo não encontrado: {INPUT_FILE}")
+
+    df = pd.read_csv(INPUT_FILE)
+    df = normalizar_colunas(df)
+
+    df = calcular_score_gestor(df)
+
+    carteira = aplicar_diversificacao(df)
+    carteira = calcular_pesos(carteira)
+
+    carteira["decisao"] = carteira.apply(definir_decisao, axis=1)
+    carteira["motivo_decisao"] = carteira.apply(gerar_motivo, axis=1)
+
+    carteira = carteira.sort_values("score_gestor", ascending=False).reset_index(drop=True)
+    carteira.insert(0, "ranking", carteira.index + 1)
+
+    colunas_saida = [
+        "ranking",
+        "ticker",
+        "empresa",
+        "setor",
+        "rating",
+        "moat_classificacao",
+        "score_balanceado",
+        "score_tecnico",
+        "moat_score_calc",
+        "score_gestor",
+        "sinal_tecnico",
+        "peso_sugerido_pct",
+        "decisao",
+        "motivo_decisao",
+    ]
+
+    colunas_saida = [c for c in colunas_saida if c in carteira.columns]
+
+    carteira[colunas_saida].to_csv(OUTPUT_FILE, index=False)
+
+    with open(REPORT_FILE, "w", encoding="utf-8") as f:
+        f.write("=" * 70 + "\n")
+        f.write("B3 FUNDAMENTALISTA ENGINE — PORTFOLIO REPORT\n")
+        f.write("=" * 70 + "\n\n")
+        f.write(f"Empresas analisadas: {len(df)}\n")
+        f.write(f"Empresas na carteira: {len(carteira)}\n")
+        f.write(f"Limite por setor: {MAX_EMPRESAS_POR_SETOR}\n\n")
+
+        f.write("PESOS DO SCORE GESTOR\n")
+        f.write(f"Fundamentalista: {PESO_FUNDAMENTALISTA:.0%}\n")
+        f.write(f"Técnico: {PESO_TECNICO:.0%}\n")
+        f.write(f"Moat: {PESO_MOAT:.0%}\n")
+        f.write(f"Diversificação: {PESO_DIVERSIFICACAO:.0%}\n\n")
+
+        f.write("CARTEIRA FINAL\n")
+        f.write(carteira[colunas_saida].to_string(index=False))
+
+    print("=" * 70)
+    print("PORTFOLIO ENGINE FINALIZADO")
+    print("=" * 70)
+    print(f"Carteira salva em: {OUTPUT_FILE}")
+    print(f"Relatório salvo em: {REPORT_FILE}")
+
+
+if __name__ == "__main__":
+    montar_carteira()
