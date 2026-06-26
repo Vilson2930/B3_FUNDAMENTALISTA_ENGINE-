@@ -95,10 +95,8 @@ def montar_carteira():
     else:
         base["selecionada_diversificacao"] = True
 
-    base["score_tecnico"] = base.get(
-        "score_tecnico",
-        50
-    )
+    if "score_tecnico" not in base.columns:
+        base["score_tecnico"] = 50
 
     base["score_tecnico"] = base["score_tecnico"].fillna(50)
 
@@ -136,7 +134,3 @@ def montar_carteira():
     print(OUTPUT_FILE)
 
     return base
-
-
-if __name__ == "__main__":
-    montar_carteira()
