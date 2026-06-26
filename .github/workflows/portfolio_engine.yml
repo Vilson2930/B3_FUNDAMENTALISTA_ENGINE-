@@ -1,173 +1,50 @@
-# ============================================================
-# portfolio_engine.py
-# B3 FUNDAMENTALISTA ENGINE
-# Carteira Institucional Final
-# ============================================================
+name: Run B3 Portfolio Engine
 
-from pathlib import Path
-import numpy as np
-import pandas as pd
+on:
+  workflow_dispatch:
 
+jobs:
+  run-portfolio:
+    runs-on: ubuntu-latest
 
-INPUT_TECNICO = Path("output/top20_tecnico.csv")
-OUTPUT_FILE = Path("output/carteira_institucional.csv")
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-def carregar_tecnico():
-    if not INPUT_TECNICO.exists():
-        print("Arquivo output/top20_tecnico.csv não encontrado.")
-        return pd.DataFrame()
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    df = pd.read_csv(INPUT_TECNICO)
+      - name: Run Fundamental Engine
+        run: |
+          python main.py
 
-    if "ticker" not in df.columns:
-        print("Coluna ticker não encontrada.")
-        return pd.DataFrame()
+      - name: Run Technical Engine
+        timeout-minutes: 4
+        run: |
+          python -c "from engine.technical_engine import analisar_top20; analisar_top20()"
 
-    return df.copy()
+      - name: Run Portfolio Engine
+        run: |
+          python -c "from engine.portfolio_engine import montar_carteira; montar_carteira()"
 
+      - name: Verificar arquivos gerados
+        if: always()
+        run: |
+          echo "Arquivos em output:"
+          ls -la output || true
 
-def aplicar_limite_setorial(
-    df,
-    score_col="score_final",
-    setor_col="setor",
-    top_n=10,
-    limite_por_setor=2
-):
-    df = df.copy()
-
-    if df.empty:
-        return df
-
-    if setor_col not in df.columns:
-        df[setor_col] = "SEM SETOR"
-
-    df[setor_col] = df[setor_col].fillna("SEM SETOR")
-
-    df = df.sort_values(
-        score_col,
-        ascending=False
-    )
-
-    selecionadas = []
-    contador_setor = {}
-
-    for _, row in df.iterrows():
-        setor = row[setor_col]
-
-        contador_setor[setor] = contador_setor.get(setor, 0)
-
-        if contador_setor[setor] >= limite_por_setor:
-            continue
-
-        selecionadas.append(row)
-        contador_setor[setor] += 1
-
-        if len(selecionadas) >= top_n:
-            break
-
-    return pd.DataFrame(selecionadas).reset_index(drop=True)
-
-
-def calcular_pesos(df):
-    df = df.copy()
-
-    total = df["score_final"].sum()
-
-    if total <= 0:
-        df["peso_sugerido"] = 1 / len(df)
-    else:
-        df["peso_sugerido"] = df["score_final"] / total
-
-    df["peso_sugerido"] = df["peso_sugerido"].clip(upper=0.12)
-
-    soma = df["peso_sugerido"].sum()
-
-    if soma > 0:
-        df["peso_sugerido"] = df["peso_sugerido"] / soma
-
-    df["peso_sugerido_pct"] = df["peso_sugerido"] * 100
-
-    return df
-
-
-def classificar_decisao(row):
-    score_final = row.get("score_final", 0)
-    score_tecnico = row.get("score_tecnico", 0)
-
-    if score_final >= 80 and score_tecnico >= 65:
-        return "ENTRADA PRIORITÁRIA"
-
-    if score_final >= 75 and score_tecnico >= 50:
-        return "ENTRADA MODERADA"
-
-    if score_final >= 70:
-        return "BOA EMPRESA, AGUARDAR MELHOR ENTRADA"
-
-    return "NÃO PRIORIZAR AGORA"
-
-
-def montar_carteira():
-    df = carregar_tecnico()
-
-    if df.empty:
-        print("Nenhuma base técnica para montar carteira.")
-        return df
-
-    carteira = aplicar_limite_setorial(
-        df,
-        score_col="score_final",
-        setor_col="setor",
-        top_n=10,
-        limite_por_setor=2
-    )
-
-    if carteira.empty:
-        print("Carteira vazia após filtro setorial.")
-        return carteira
-
-    carteira = calcular_pesos(carteira)
-
-    carteira["decisao"] = carteira.apply(
-        classificar_decisao,
-        axis=1
-    )
-
-    colunas_finais = [
-        "ticker",
-        "empresa",
-        "setor",
-        "rating",
-        "moat_score",
-        "score_fundamental",
-        "score_tecnico",
-        "score_final",
-        "sinal_tecnico",
-        "decisao",
-        "peso_sugerido_pct",
-        "preco",
-        "rsi14",
-        "dist_mm200",
-        "retorno_20d",
-        "volume_forca"
-    ]
-
-    colunas_finais = [
-        col for col in colunas_finais
-        if col in carteira.columns
-    ]
-
-    carteira = carteira[colunas_finais]
-
-    Path("output").mkdir(exist_ok=True)
-
-    carteira.to_csv(
-        OUTPUT_FILE,
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    print("Carteira institucional salva:")
-    print(OUTPUT_FILE)
-
-    return carteira
+      - name: Upload Portfolio Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: b3-portfolio-report
+          path: output/**
+          if-no-files-found: warn
+          retention-days: 30
