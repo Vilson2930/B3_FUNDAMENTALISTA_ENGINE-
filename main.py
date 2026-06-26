@@ -1,13 +1,29 @@
 # ============================================================
 # B3 FUNDAMENTALISTA ENGINE
-# MAIN.PY
+# MAIN.PY — DEBUG DE IMPORTAÇÃO
 # ============================================================
 
+print("DEBUG 0 — main.py iniciado")
+
+print("DEBUG 1 — importando cvm_data")
 from engine.cvm_data import carregar_dados_cvm
+print("DEBUG 2 — cvm_data importado")
+
+print("DEBUG 3 — importando b3_data")
 from engine.b3_data import carregar_empresas_b3
+print("DEBUG 4 — b3_data importado")
+
+print("DEBUG 5 — importando indicators")
 from engine.indicators import construir_base_fundamentalista
+print("DEBUG 6 — indicators importado")
+
+print("DEBUG 7 — importando scoring")
 from engine.scoring import gerar_rankings
+print("DEBUG 8 — scoring importado")
+
+print("DEBUG 9 — importando report")
 from engine.report import gerar_relatorio
+print("DEBUG 10 — report importado")
 
 
 def main():
