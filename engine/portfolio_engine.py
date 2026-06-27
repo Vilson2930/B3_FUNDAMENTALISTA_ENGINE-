@@ -2,27 +2,27 @@
 # portfolio_engine.py
 # B3 FUNDAMENTALISTA ENGINE
 # Carteira Institucional Final
+#
+# Filosofia:
+# O Fundamentalista escolhe as 20 melhores empresas.
+# O Técnico calcula o momento de entrada.
+# O Portfolio usa o top20_tecnico.csv para montar a carteira.
 # ============================================================
 
 from pathlib import Path
 import pandas as pd
 
 
-INPUT_PREMIUM = Path("output/top20_premium.csv")
 INPUT_TECNICO = Path("output/top20_tecnico.csv")
-INPUT_DIVERSIFICADO = Path("output/top20_diversificado.csv")
-
 OUTPUT_FILE = Path("output/carteira_institucional.csv")
 
 
 def carregar_csv(caminho):
-    if caminho.exists():
-        try:
-            return pd.read_csv(caminho, sep=";", decimal=",")
-        except Exception:
-            return pd.read_csv(caminho)
+    if not caminho.exists():
+        print(f"Arquivo não encontrado: {caminho}")
+        return pd.DataFrame()
 
-    return pd.DataFrame()
+    return pd.read_csv(caminho)
 
 
 def calcular_peso_por_score(df, score_col="score_final_carteira"):
@@ -43,33 +43,7 @@ def calcular_peso_por_score(df, score_col="score_final_carteira"):
 def limitar_peso_maximo(df, peso_maximo=0.10):
     df = df.copy()
 
-    while True:
-        acima = df["peso_sugerido"] > peso_maximo
-
-        if not acima.any():
-            break
-
-        excesso = (
-            df.loc[acima, "peso_sugerido"] - peso_maximo
-        ).sum()
-
-        df.loc[acima, "peso_sugerido"] = peso_maximo
-
-        abaixo = df["peso_sugerido"] < peso_maximo
-
-        if abaixo.sum() == 0:
-            break
-
-        soma_abaixo = df.loc[abaixo, "peso_sugerido"].sum()
-
-        if soma_abaixo <= 0:
-            break
-
-        proporcao = (
-            df.loc[abaixo, "peso_sugerido"] / soma_abaixo
-        )
-
-        df.loc[abaixo, "peso_sugerido"] += excesso * proporcao
+    df["peso_sugerido"] = df["peso_sugerido"].clip(upper=peso_maximo)
 
     total = df["peso_sugerido"].sum()
 
@@ -81,78 +55,55 @@ def limitar_peso_maximo(df, peso_maximo=0.10):
     return df
 
 
+def classificar_decisao(score):
+    if score >= 80:
+        return "COMPRAR AGORA"
+
+    if score >= 70:
+        return "COMPRAR PARCIAL"
+
+    if score >= 60:
+        return "AGUARDAR MELHOR ENTRADA"
+
+    return "NÃO PRIORIZAR AGORA"
+
+
 def montar_carteira():
+    base = carregar_csv(INPUT_TECNICO)
 
-    premium = carregar_csv(INPUT_PREMIUM)
-    tecnico = carregar_csv(INPUT_TECNICO)
-    diversificado = carregar_csv(INPUT_DIVERSIFICADO)
-
-    if premium.empty:
-        print("Arquivo top20_premium.csv não encontrado.")
+    if base.empty:
+        print("Arquivo top20_tecnico.csv vazio ou não encontrado.")
         return pd.DataFrame()
 
-    base = premium.copy()
-
-    if not tecnico.empty and "ticker" in tecnico.columns:
-
-        cols_tecnico = [
-            "ticker",
-            "score_tecnico",
-            "sinal_tecnico",
-            "rsi14",
-            "retorno_20d",
-            "dist_mm200",
-            "volume_forca"
-        ]
-
-        cols_tecnico = [
-            c for c in cols_tecnico
-            if c in tecnico.columns
-        ]
-
-        base = base.merge(
-            tecnico[cols_tecnico],
-            on="ticker",
-            how="left"
-        )
-
-    if (
-        not diversificado.empty
-        and "ticker" in diversificado.columns
-    ):
-        base["selecionada_diversificacao"] = (
-            base["ticker"].isin(diversificado["ticker"])
-        )
-    else:
-        base["selecionada_diversificacao"] = True
+    if "score_fundamental" not in base.columns:
+        base["score_fundamental"] = 50
 
     if "score_tecnico" not in base.columns:
         base["score_tecnico"] = 50
 
-    if "score_balanceado" not in base.columns:
-        base["score_balanceado"] = 50
+    base["score_fundamental"] = pd.to_numeric(
+        base["score_fundamental"],
+        errors="coerce"
+    ).fillna(50)
 
     base["score_tecnico"] = pd.to_numeric(
         base["score_tecnico"],
         errors="coerce"
     ).fillna(50)
 
-    base["score_balanceado"] = pd.to_numeric(
-        base["score_balanceado"],
-        errors="coerce"
-    ).fillna(50)
-
     base["score_final_carteira"] = (
-        base["score_balanceado"] * 0.70 +
+        base["score_fundamental"] * 0.70 +
         base["score_tecnico"] * 0.30
     )
 
+    base["decisao"] = base["score_final_carteira"].apply(classificar_decisao)
+
     base = base.sort_values(
-        "score_final_carteira",
+        ["score_final_carteira", "score_tecnico"],
         ascending=False
     ).reset_index(drop=True)
 
-    base = base.head(20)
+    base.insert(0, "ranking_carteira", base.index + 1)
 
     base = calcular_peso_por_score(base)
     base = limitar_peso_maximo(base, peso_maximo=0.10)
@@ -162,8 +113,6 @@ def montar_carteira():
     base.to_csv(
         OUTPUT_FILE,
         index=False,
-        sep=";",
-        decimal=",",
         encoding="utf-8-sig"
     )
 
@@ -171,20 +120,22 @@ def montar_carteira():
     print("CARTEIRA INSTITUCIONAL")
     print("=" * 70)
 
-    colunas_print = [
+    colunas = [
+        "ranking_carteira",
         "ticker",
-        "score_balanceado",
+        "empresa",
+        "setor",
+        "score_fundamental",
         "score_tecnico",
         "score_final_carteira",
-        "peso_sugerido_pct"
+        "peso_sugerido_pct",
+        "sinal_tecnico",
+        "decisao",
     ]
 
-    colunas_print = [
-        c for c in colunas_print
-        if c in base.columns
-    ]
+    colunas = [c for c in colunas if c in base.columns]
 
-    print(base[colunas_print])
+    print(base[colunas])
 
     print("\nCarteira institucional salva em:")
     print(OUTPUT_FILE)
