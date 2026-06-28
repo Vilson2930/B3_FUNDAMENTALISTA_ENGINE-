@@ -52,6 +52,11 @@ jobs:
         run: |
           python -c "from engine.diversification import analisar_diversificacao; analisar_diversificacao()"
 
+      - name: Run Stress Test
+        timeout-minutes: 2
+        run: |
+          python -c "from engine.stress_test import executar_stress_test; executar_stress_test()"
+
       - name: Run AI Audit
         timeout-minutes: 3
         env:
