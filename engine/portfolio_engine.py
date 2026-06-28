@@ -7,6 +7,7 @@
 # O Fundamentalista escolhe as 20 melhores empresas.
 # O Técnico calcula o momento de entrada.
 # O Portfolio usa o top20_tecnico.csv para montar a carteira.
+# Score Final = 70% Fundamentalista + 30% Técnico
 # ============================================================
 
 from pathlib import Path
@@ -22,7 +23,13 @@ def carregar_csv(caminho):
         print(f"Arquivo não encontrado: {caminho}")
         return pd.DataFrame()
 
-    return pd.read_csv(caminho)
+    try:
+        df = pd.read_csv(caminho, encoding="utf-8-sig")
+    except Exception:
+        df = pd.read_csv(caminho)
+
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
 
 
 def calcular_peso_por_score(df, score_col="score_final_carteira"):
@@ -75,10 +82,21 @@ def montar_carteira():
         print("Arquivo top20_tecnico.csv vazio ou não encontrado.")
         return pd.DataFrame()
 
+    print("=" * 70)
+    print("AUDITORIA — TOP20 TÉCNICO CARREGADO")
+    print("=" * 70)
+    print("Linhas:", len(base))
+    print("Colunas:", list(base.columns))
+
+    if "ticker" in base.columns:
+        base["ticker"] = base["ticker"].astype(str).str.strip().str.upper()
+
     if "score_fundamental" not in base.columns:
+        print("ATENÇÃO: coluna score_fundamental não encontrada. Usando 50.")
         base["score_fundamental"] = 50
 
     if "score_tecnico" not in base.columns:
+        print("ATENÇÃO: coluna score_tecnico não encontrada. Usando 50.")
         base["score_tecnico"] = 50
 
     base["score_fundamental"] = pd.to_numeric(
@@ -90,6 +108,17 @@ def montar_carteira():
         base["score_tecnico"],
         errors="coerce"
     ).fillna(50)
+
+    print()
+    print("Amostra antes do cálculo:")
+    colunas_debug = [
+        "ticker",
+        "score_fundamental",
+        "score_tecnico",
+        "sinal_tecnico"
+    ]
+    colunas_debug = [c for c in colunas_debug if c in base.columns]
+    print(base[colunas_debug].head(20))
 
     base["score_final_carteira"] = (
         base["score_fundamental"] * 0.70 +
@@ -116,6 +145,7 @@ def montar_carteira():
         encoding="utf-8-sig"
     )
 
+    print()
     print("=" * 70)
     print("CARTEIRA INSTITUCIONAL")
     print("=" * 70)
