@@ -44,6 +44,11 @@ jobs:
         run: |
           python -c "from engine.portfolio_engine import montar_carteira; montar_carteira()"
 
+      - name: Run Diversification Engine
+        timeout-minutes: 2
+        run: |
+          python -c "from engine.diversification import analisar_diversificacao; analisar_diversificacao()"
+
       - name: Verificar arquivos gerados
         if: always()
         run: |
