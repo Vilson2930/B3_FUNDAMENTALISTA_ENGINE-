@@ -1,12 +1,11 @@
 # ============================================================
 # pdf_report.py
 # B3 FUNDAMENTALISTA ENGINE
-# Relatório Institucional em PDF — Versão Profissional Corrigida
+# Relatório Institucional em PDF — Versão 2.0
 # ============================================================
 
 from pathlib import Path
 from datetime import datetime
-import textwrap
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -27,6 +26,10 @@ from reportlab.platypus import (
 )
 
 
+# ============================================================
+# PATHS
+# ============================================================
+
 OUTPUT_DIR = Path("output")
 PDF_FILE = OUTPUT_DIR / "relatorio_institucional_b3.pdf"
 
@@ -36,13 +39,28 @@ AUDITORIA_FILE = OUTPUT_DIR / "auditoria_ia.txt"
 
 GRAFICO_SETOR = OUTPUT_DIR / "grafico_setor.png"
 GRAFICO_PESOS = OUTPUT_DIR / "grafico_pesos.png"
+GRAFICO_DECISAO = OUTPUT_DIR / "grafico_decisao.png"
+GRAFICO_SCORE = OUTPUT_DIR / "grafico_score.png"
 
 
-COR_PRIMARIA = colors.HexColor("#111827")
-COR_SECUNDARIA = colors.HexColor("#1f2937")
+# ============================================================
+# CORES
+# ============================================================
+
+COR_PRIMARIA = colors.HexColor("#0f172a")
+COR_SECUNDARIA = colors.HexColor("#1e293b")
+COR_AZUL = colors.HexColor("#2563eb")
+COR_VERDE = colors.HexColor("#16a34a")
+COR_AMARELO = colors.HexColor("#ca8a04")
+COR_VERMELHO = colors.HexColor("#dc2626")
 COR_CINZA = colors.HexColor("#f3f4f6")
+COR_CINZA_2 = colors.HexColor("#e5e7eb")
 COR_TEXTO = colors.HexColor("#111827")
 
+
+# ============================================================
+# UTILITÁRIOS
+# ============================================================
 
 def carregar_csv(caminho):
     if not caminho.exists():
@@ -59,20 +77,38 @@ def ler_texto(caminho):
     return caminho.read_text(encoding="utf-8", errors="ignore")
 
 
-def numero_seguro(valor, default=0):
+def numero_seguro(valor, default=0.0):
     try:
         return float(valor)
     except Exception:
         return default
 
 
-def limpar_html(texto):
-    texto = str(texto)
+def texto_seguro(valor):
+    if pd.isna(valor):
+        return ""
+    return str(valor)
+
+
+def limpar_texto_para_pdf(texto):
+    texto = str(texto or "")
     texto = texto.replace("&", "&amp;")
     texto = texto.replace("<", "&lt;")
     texto = texto.replace(">", "&gt;")
     return texto
 
+
+def pct(valor):
+    return f"{numero_seguro(valor):.2f}%"
+
+
+def fmt(valor):
+    return f"{numero_seguro(valor):.2f}"
+
+
+# ============================================================
+# MÉTRICAS
+# ============================================================
 
 def calcular_metricas(df):
     if df.empty:
@@ -86,6 +122,7 @@ def calcular_metricas(df):
             "maior_setor": "N/A",
             "peso_maior_setor": 0,
             "decisao_top1": "N/A",
+            "nota_visual": "N/A",
         }
 
     qtd_ativos = len(df)
@@ -97,7 +134,7 @@ def calcular_metricas(df):
     )
 
     melhor_ativo = (
-        df.iloc[0]["ticker"]
+        str(df.iloc[0]["ticker"])
         if "ticker" in df.columns and not df.empty
         else "N/A"
     )
@@ -124,16 +161,24 @@ def calcular_metricas(df):
     peso_maior_setor = 0
 
     if "setor" in df.columns and "peso_sugerido_pct" in df.columns:
-        setores = df.groupby("setor")["peso_sugerido_pct"].sum().sort_values(ascending=False)
-        if not setores.empty:
-            maior_setor = str(setores.index[0])
-            peso_maior_setor = float(setores.iloc[0])
+        setor = (
+            df.groupby("setor")["peso_sugerido_pct"]
+            .sum()
+            .sort_values(ascending=False)
+        )
+
+        if not setor.empty:
+            maior_setor = str(setor.index[0])
+            peso_maior_setor = float(setor.iloc[0])
 
     decisao_top1 = (
-        df.iloc[0]["decisao"]
+        str(df.iloc[0]["decisao"])
         if "decisao" in df.columns and not df.empty
         else "N/A"
     )
+
+    # Nota visual simples, só para dashboard. A auditoria IA continua sendo a fonte qualitativa.
+    nota_visual = min(max(score_medio / 10, 0), 10)
 
     return {
         "qtd_ativos": qtd_ativos,
@@ -145,7 +190,18 @@ def calcular_metricas(df):
         "maior_setor": maior_setor,
         "peso_maior_setor": peso_maior_setor,
         "decisao_top1": decisao_top1,
+        "nota_visual": nota_visual,
     }
+
+
+# ============================================================
+# GRÁFICOS
+# ============================================================
+
+def salvar_grafico(path):
+    plt.tight_layout()
+    plt.savefig(path, dpi=220, bbox_inches="tight")
+    plt.close()
 
 
 def criar_grafico_setor(df):
@@ -172,22 +228,20 @@ def criar_grafico_setor(df):
     plt.title("Exposição Setorial da Carteira", fontsize=14, fontweight="bold")
     plt.xlabel("Peso na carteira (%)", fontsize=11)
     plt.xticks(fontsize=10)
-    plt.yticks(fontsize=10)
+    plt.yticks(fontsize=9)
+    plt.grid(axis="x", alpha=0.25)
 
     for bar in bars:
         largura = bar.get_width()
         plt.text(
-            largura + 0.25,
+            largura + 0.3,
             bar.get_y() + bar.get_height() / 2,
             f"{largura:.1f}%",
             va="center",
             fontsize=9,
         )
 
-    plt.tight_layout()
-    plt.savefig(GRAFICO_SETOR, dpi=200, bbox_inches="tight")
-    plt.close()
-
+    salvar_grafico(GRAFICO_SETOR)
     return GRAFICO_SETOR
 
 
@@ -208,53 +262,104 @@ def criar_grafico_pesos(df):
     plt.xlabel("Peso na carteira (%)", fontsize=11)
     plt.xticks(fontsize=10)
     plt.yticks(fontsize=10)
+    plt.grid(axis="x", alpha=0.25)
 
     for bar in bars:
         largura = bar.get_width()
         plt.text(
-            largura + 0.15,
+            largura + 0.2,
             bar.get_y() + bar.get_height() / 2,
             f"{largura:.1f}%",
             va="center",
             fontsize=9,
         )
 
-    plt.tight_layout()
-    plt.savefig(GRAFICO_PESOS, dpi=200, bbox_inches="tight")
-    plt.close()
-
+    salvar_grafico(GRAFICO_PESOS)
     return GRAFICO_PESOS
 
 
+def criar_grafico_decisao(df):
+    if df.empty or "decisao" not in df.columns:
+        return None
+
+    dados = df["decisao"].value_counts().sort_values(ascending=True)
+
+    plt.figure(figsize=(10, 5))
+    bars = plt.barh(dados.index, dados.values)
+
+    plt.title("Distribuição por Decisão", fontsize=14, fontweight="bold")
+    plt.xlabel("Quantidade de ativos", fontsize=11)
+    plt.xticks(fontsize=10)
+    plt.yticks(fontsize=9)
+    plt.grid(axis="x", alpha=0.25)
+
+    for bar in bars:
+        largura = bar.get_width()
+        plt.text(
+            largura + 0.05,
+            bar.get_y() + bar.get_height() / 2,
+            f"{int(largura)}",
+            va="center",
+            fontsize=9,
+        )
+
+    salvar_grafico(GRAFICO_DECISAO)
+    return GRAFICO_DECISAO
+
+
+def criar_grafico_score(df):
+    if df.empty or "ticker" not in df.columns or "score_final_carteira" not in df.columns:
+        return None
+
+    dados = (
+        df.sort_values("score_final_carteira", ascending=False)
+        .head(10)
+        .sort_values("score_final_carteira", ascending=True)
+    )
+
+    plt.figure(figsize=(10, 6))
+    bars = plt.barh(dados["ticker"], dados["score_final_carteira"])
+
+    plt.title("Top 10 Scores da Carteira", fontsize=14, fontweight="bold")
+    plt.xlabel("Score final", fontsize=11)
+    plt.xticks(fontsize=10)
+    plt.yticks(fontsize=10)
+    plt.grid(axis="x", alpha=0.25)
+
+    for bar in bars:
+        largura = bar.get_width()
+        plt.text(
+            largura + 0.5,
+            bar.get_y() + bar.get_height() / 2,
+            f"{largura:.1f}",
+            va="center",
+            fontsize=9,
+        )
+
+    salvar_grafico(GRAFICO_SCORE)
+    return GRAFICO_SCORE
+
+
+# ============================================================
+# TABELAS
+# ============================================================
+
 def montar_tabela_top5(df):
     if df.empty:
-        return [["Sem dados disponíveis"]]
+        return [["Ticker", "Score", "Peso na Carteira", "Decisão"], ["-", "-", "-", "-"]]
 
     colunas = ["ticker", "score_final_carteira", "peso_sugerido_pct", "decisao"]
     colunas = [c for c in colunas if c in df.columns]
 
-    nomes = {
-        "ticker": "Ticker",
-        "score_final_carteira": "Score",
-        "peso_sugerido_pct": "Peso na Carteira",
-        "decisao": "Decisão",
-    }
+    tabela = [["Ticker", "Score", "Peso na Carteira", "Decisão"]]
 
-    tabela = [[nomes.get(c, c) for c in colunas]]
-
-    for _, row in df[colunas].head(5).iterrows():
-        linha = []
-        for col in colunas:
-            valor = row.get(col, "")
-
-            if col == "score_final_carteira":
-                valor = f"{numero_seguro(valor):.2f}"
-            elif col == "peso_sugerido_pct":
-                valor = f"{numero_seguro(valor):.2f}%"
-
-            linha.append(str(valor))
-
-        tabela.append(linha)
+    for _, row in df.head(5).iterrows():
+        tabela.append([
+            texto_seguro(row.get("ticker", "")),
+            fmt(row.get("score_final_carteira", 0)),
+            pct(row.get("peso_sugerido_pct", 0)),
+            texto_seguro(row.get("decisao", "")),
+        ])
 
     return tabela
 
@@ -267,6 +372,8 @@ def montar_tabela_carteira(df):
         "ranking_carteira",
         "ticker",
         "setor",
+        "rating_carteira",
+        "conviccao",
         "score_final_carteira",
         "peso_sugerido_pct",
         "decisao",
@@ -278,6 +385,8 @@ def montar_tabela_carteira(df):
         "ranking_carteira": "Rank",
         "ticker": "Ticker",
         "setor": "Setor",
+        "rating_carteira": "Rating",
+        "conviccao": "Convicção",
         "score_final_carteira": "Score",
         "peso_sugerido_pct": "Peso na Carteira",
         "decisao": "Decisão",
@@ -292,58 +401,69 @@ def montar_tabela_carteira(df):
             valor = row.get(col, "")
 
             if col == "score_final_carteira":
-                valor = f"{numero_seguro(valor):.2f}"
-            elif col == "peso_sugerido_pct":
-                valor = f"{numero_seguro(valor):.2f}%"
+                valor = fmt(valor)
 
-            linha.append(str(valor))
+            if col == "peso_sugerido_pct":
+                valor = pct(valor)
+
+            linha.append(texto_seguro(valor))
 
         tabela.append(linha)
 
     return tabela
 
 
+# ============================================================
+# DASHBOARD
+# ============================================================
+
 def criar_card(titulo, valor, descricao=""):
+    style_t = ParagraphStyle(
+        "card_title",
+        fontSize=8,
+        textColor=colors.white,
+        alignment=TA_CENTER,
+        leading=10,
+    )
+
+    style_v = ParagraphStyle(
+        "card_value",
+        fontSize=16,
+        textColor=colors.white,
+        alignment=TA_CENTER,
+        leading=20,
+    )
+
+    style_d = ParagraphStyle(
+        "card_desc",
+        fontSize=7,
+        textColor=colors.white,
+        alignment=TA_CENTER,
+        leading=9,
+    )
+
     return [
-        Paragraph(f"<b>{limpar_html(titulo)}</b>", ParagraphStyle(
-            "CardTitulo",
-            fontSize=8,
-            textColor=colors.white,
-            alignment=TA_CENTER,
-            leading=10,
-        )),
-        Paragraph(limpar_html(valor), ParagraphStyle(
-            "CardValor",
-            fontSize=16,
-            textColor=colors.white,
-            alignment=TA_CENTER,
-            leading=20,
-        )),
-        Paragraph(limpar_html(descricao), ParagraphStyle(
-            "CardDesc",
-            fontSize=7,
-            textColor=colors.white,
-            alignment=TA_CENTER,
-            leading=9,
-        )),
+        Paragraph(f"<b>{titulo}</b>", style_t),
+        Paragraph(str(valor), style_v),
+        Paragraph(descricao, style_d),
     ]
 
 
 def montar_dashboard(metricas):
     dados = [
         [
-            criar_card("ATIVOS", str(metricas["qtd_ativos"]), "Carteira final"),
+            criar_card("ATIVOS", metricas["qtd_ativos"], "Carteira final"),
             criar_card("PESO TOTAL", f"{metricas['peso_total']:.1f}%", "Alocação"),
-            criar_card("TOP 1", str(metricas["melhor_ativo"]), "Principal ativo"),
+            criar_card("TOP 1", metricas["melhor_ativo"], "Principal ativo"),
         ],
         [
             criar_card("SCORE MÉDIO", f"{metricas['score_medio']:.1f}", "Qualidade geral"),
             criar_card("TOP 5", f"{metricas['peso_top5']:.1f}%", "Concentração"),
-            criar_card("SETORES", str(metricas["qtd_setores"]), "Diversificação"),
+            criar_card("SETORES", metricas["qtd_setores"], "Diversificação"),
         ],
     ]
 
-    tabela = Table(dados, colWidths=[5.7 * cm, 5.7 * cm, 5.7 * cm])
+    tabela = Table(dados, colWidths=[5.6 * cm, 5.6 * cm, 5.6 * cm])
 
     tabela.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), COR_SECUNDARIA),
@@ -357,30 +477,28 @@ def montar_dashboard(metricas):
     return tabela
 
 
-def paragrafos_auditoria(auditoria, estilo_texto):
-    elementos = []
-    texto = limpar_html(auditoria)
+# ============================================================
+# RODAPÉ
+# ============================================================
 
-    for bloco in texto.split("\n"):
-        bloco = bloco.strip()
+def rodape(canvas, doc):
+    canvas.saveState()
+    largura, _ = A4
+    data = datetime.now().strftime("%d/%m/%Y")
 
-        if not bloco:
-            continue
+    canvas.setFont("Helvetica", 7)
+    canvas.setFillColor(colors.HexColor("#6b7280"))
 
-        if bloco.startswith(("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10.")):
-            elementos.append(Spacer(1, 0.12 * cm))
-            elementos.append(Paragraph(f"<b>{bloco}</b>", estilo_texto))
-        elif bloco.startswith("-"):
-            elementos.append(Paragraph(f"• {bloco[1:].strip()}", estilo_texto))
-        elif bloco.startswith("•"):
-            elementos.append(Paragraph(bloco, estilo_texto))
-        else:
-            elementos.append(Paragraph(bloco, estilo_texto))
+    canvas.drawString(1.4 * cm, 0.8 * cm, "B3 Fundamentalista Engine")
+    canvas.drawCentredString(largura / 2, 0.8 * cm, f"Relatório institucional | {data}")
+    canvas.drawRightString(largura - 1.4 * cm, 0.8 * cm, f"Página {doc.page}")
 
-        elementos.append(Spacer(1, 0.06 * cm))
+    canvas.restoreState()
 
-    return elementos
 
+# ============================================================
+# PDF
+# ============================================================
 
 def gerar_pdf_institucional():
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -395,6 +513,8 @@ def gerar_pdf_institucional():
 
     grafico_setor = criar_grafico_setor(base_relatorio)
     grafico_pesos = criar_grafico_pesos(base_relatorio)
+    grafico_decisao = criar_grafico_decisao(base_relatorio)
+    grafico_score = criar_grafico_score(base_relatorio)
 
     doc = SimpleDocTemplate(
         str(PDF_FILE),
@@ -467,11 +587,8 @@ def gerar_pdf_institucional():
 
     elementos = []
 
-    # ========================================================
     # CAPA
-    # ========================================================
-
-    elementos.append(Spacer(1, 3.2 * cm))
+    elementos.append(Spacer(1, 3.4 * cm))
     elementos.append(Paragraph("B3 FUNDAMENTALISTA ENGINE", titulo_capa))
     elementos.append(Paragraph("RELATÓRIO INSTITUCIONAL DE CARTEIRA", subtitulo_capa))
     elementos.append(Spacer(1, 0.5 * cm))
@@ -509,10 +626,7 @@ def gerar_pdf_institucional():
     elementos.append(Paragraph("Documento gerado automaticamente. Uso educacional e analítico.", disclaimer_style))
     elementos.append(PageBreak())
 
-    # ========================================================
     # ÍNDICE
-    # ========================================================
-
     elementos.append(Paragraph("Índice", secao))
 
     indice = [
@@ -527,7 +641,6 @@ def gerar_pdf_institucional():
 
     tabela_indice = Table(indice, colWidths=[1 * cm, 15 * cm])
     tabela_indice.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d1d5db")),
         ("FONTSIZE", (0, 0), (-1, -1), 10),
         ("TOPPADDING", (0, 0), (-1, -1), 8),
@@ -537,10 +650,7 @@ def gerar_pdf_institucional():
     elementos.append(tabela_indice)
     elementos.append(PageBreak())
 
-    # ========================================================
-    # RESUMO EXECUTIVO
-    # ========================================================
-
+    # RESUMO
     elementos.append(Paragraph("1. Resumo Executivo", secao))
 
     resumo = f"""
@@ -560,44 +670,40 @@ def gerar_pdf_institucional():
     """
 
     elementos.append(Paragraph(resumo, texto))
-    elementos.append(Spacer(1, 0.35 * cm))
+    elementos.append(Spacer(1, 0.4 * cm))
 
-    elementos.append(Paragraph("Top 5 Ativos da Carteira", texto))
-    tabela_top5 = Table(montar_tabela_top5(base_relatorio), repeatRows=1)
-    tabela_top5.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), COR_SECUNDARIA),
+    elementos.append(Paragraph("Top 5 Ativos da Carteira", secao))
+
+    top5 = Table(montar_tabela_top5(base_relatorio), repeatRows=1)
+    top5.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), COR_PRIMARIA),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d1d5db")),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, COR_CINZA]),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, COR_CINZA]),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
-    elementos.append(tabela_top5)
+
+    elementos.append(top5)
     elementos.append(PageBreak())
 
-    # ========================================================
     # DASHBOARD
-    # ========================================================
-
     elementos.append(Paragraph("2. Dashboard da Carteira", secao))
     elementos.append(montar_dashboard(metricas))
     elementos.append(Spacer(1, 0.5 * cm))
 
-    diagnostico = f"""
-    Maior setor: <b>{limpar_html(metricas['maior_setor'])}</b> com
-    <b>{metricas['peso_maior_setor']:.2f}%</b> de peso.
+    leitura_dashboard = f"""
+    Maior setor: <b>{metricas['maior_setor']}</b> com <b>{metricas['peso_maior_setor']:.2f}%</b> de peso.
     Peso consolidado dos 5 maiores ativos: <b>{metricas['peso_top5']:.2f}%</b>.
-    Decisão do ativo principal: <b>{limpar_html(metricas['decisao_top1'])}</b>.
+    Decisão do ativo principal: <b>{metricas['decisao_top1']}</b>.
     """
 
-    elementos.append(Paragraph(diagnostico, texto))
+    elementos.append(Paragraph(leitura_dashboard, texto))
     elementos.append(PageBreak())
 
-    # ========================================================
-    # CARTEIRA SUGERIDA
-    # ========================================================
-
+    # CARTEIRA
     elementos.append(Paragraph("3. Carteira Sugerida", secao))
 
     tabela_dados = montar_tabela_carteira(base_relatorio)
@@ -605,7 +711,7 @@ def gerar_pdf_institucional():
     tabela = Table(
         tabela_dados,
         repeatRows=1,
-        colWidths=[1.1 * cm, 1.6 * cm, 3.7 * cm, 1.6 * cm, 2.4 * cm, 5.7 * cm],
+        colWidths=[1 * cm, 1.5 * cm, 3.1 * cm, 1.3 * cm, 1.8 * cm, 1.5 * cm, 2.3 * cm, 3.5 * cm],
     )
 
     tabela.setStyle(TableStyle([
@@ -613,48 +719,65 @@ def gerar_pdf_institucional():
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d1d5db")),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 6.7),
+        ("FONTSIZE", (0, 0), (-1, -1), 6.2),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, COR_CINZA]),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
 
     elementos.append(tabela)
     elementos.append(PageBreak())
 
-    # ========================================================
     # GRÁFICOS
-    # ========================================================
-
     elementos.append(Paragraph("4. Gráficos Institucionais", secao))
 
     if grafico_setor:
-        elementos.append(Paragraph("<b>Exposição por setor</b>", texto))
-        elementos.append(Paragraph("Mostra a participação de cada setor no peso total da carteira.", texto_pequeno))
+        elementos.append(Paragraph("<b>Exposição por setor</b><br/>Mostra a participação de cada setor no peso total da carteira.", texto))
         elementos.append(Image(str(grafico_setor), width=16 * cm, height=9 * cm))
-        elementos.append(Spacer(1, 0.5 * cm))
+        elementos.append(Spacer(1, 0.4 * cm))
 
     if grafico_pesos:
-        elementos.append(Paragraph("<b>Peso sugerido por ativo</b>", texto))
-        elementos.append(Paragraph("Mostra os 10 maiores pesos individuais dentro da carteira final.", texto_pequeno))
+        elementos.append(Paragraph("<b>Peso sugerido por ativo</b><br/>Mostra os 10 maiores pesos individuais dentro da carteira final.", texto))
         elementos.append(Image(str(grafico_pesos), width=16 * cm, height=9 * cm))
+        elementos.append(PageBreak())
 
-    elementos.append(PageBreak())
+    if grafico_score:
+        elementos.append(Paragraph("<b>Score final por ativo</b><br/>Mostra os 10 maiores scores combinados entre fundamentos e análise técnica.", texto))
+        elementos.append(Image(str(grafico_score), width=16 * cm, height=9 * cm))
+        elementos.append(Spacer(1, 0.4 * cm))
 
-    # ========================================================
-    # AUDITORIA IA
-    # ========================================================
+    if grafico_decisao:
+        elementos.append(Paragraph("<b>Distribuição por decisão</b><br/>Mostra quantos ativos estão classificados em cada decisão operacional.", texto))
+        elementos.append(Image(str(grafico_decisao), width=16 * cm, height=8 * cm))
+        elementos.append(PageBreak())
 
+    # AUDITORIA
     elementos.append(Paragraph("5. Auditoria Institucional com IA", secao))
-    elementos.extend(paragrafos_auditoria(auditoria, texto))
+
+    auditoria_limpa = limpar_texto_para_pdf(auditoria)
+
+    for bloco in auditoria_limpa.split("\n"):
+        bloco = bloco.strip()
+
+        if not bloco:
+            continue
+
+        if bloco.startswith(("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10.")):
+            elementos.append(Spacer(1, 0.15 * cm))
+            elementos.append(Paragraph(f"<b>{bloco}</b>", texto))
+        elif bloco.startswith("-") or bloco.startswith("•"):
+            bloco = bloco.replace("•", "").replace("-", "").strip()
+            elementos.append(Paragraph(f"• {bloco}", texto))
+        else:
+            elementos.append(Paragraph(bloco, texto))
+
+        elementos.append(Spacer(1, 0.08 * cm))
+
     elementos.append(PageBreak())
 
-    # ========================================================
     # METODOLOGIA
-    # ========================================================
-
     elementos.append(Paragraph("6. Metodologia", secao))
 
     metodologia = """
@@ -675,10 +798,7 @@ def gerar_pdf_institucional():
     elementos.append(Paragraph(metodologia, texto))
     elementos.append(PageBreak())
 
-    # ========================================================
-    # CONCLUSÃO E DISCLAIMER
-    # ========================================================
-
+    # CONCLUSÃO
     elementos.append(Paragraph("7. Conclusão e Disclaimer", secao))
 
     conclusao = """
@@ -699,7 +819,11 @@ def gerar_pdf_institucional():
     elementos.append(Spacer(1, 0.5 * cm))
     elementos.append(Paragraph("Fim do relatório.", texto_pequeno))
 
-    doc.build(elementos)
+    doc.build(
+        elementos,
+        onFirstPage=rodape,
+        onLaterPages=rodape,
+    )
 
     print("=" * 70)
     print("PDF INSTITUCIONAL GERADO")
