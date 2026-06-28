@@ -1,7 +1,7 @@
 # ============================================================
 # technical_engine.py
 # B3 FUNDAMENTALISTA ENGINE
-# Análise Técnica Institucional — Download em Lote
+# Análise Técnica Institucional — V2 Explicável
 # ============================================================
 
 from pathlib import Path
@@ -55,7 +55,7 @@ def baixar_precos_lote(tickers):
             progress=False,
             threads=True,
             group_by="ticker",
-            timeout=30
+            timeout=30,
         )
 
     except Exception as erro:
@@ -339,6 +339,221 @@ def classificar_sinal(score):
     return "EVITAR"
 
 
+# ============================================================
+# CAMADA EXPLICÁVEL
+# ============================================================
+
+def status_tendencia(row):
+    preco = row.get("Close", np.nan)
+    mm20 = row.get("mm20", np.nan)
+    mm50 = row.get("mm50", np.nan)
+    mm200 = row.get("mm200", np.nan)
+
+    if pd.isna(preco) or pd.isna(mm200):
+        return "INDEFINIDA"
+
+    if preco > mm200 and pd.notna(mm50) and mm50 > mm200:
+        return "ALTA ESTRUTURAL"
+
+    if preco > mm200:
+        return "ALTA PARCIAL"
+
+    if pd.notna(mm20) and preco > mm20:
+        return "RECUPERAÇÃO CURTA"
+
+    return "BAIXA"
+
+
+def status_mm200(row):
+    preco = row.get("Close", np.nan)
+    mm200 = row.get("mm200", np.nan)
+
+    if pd.isna(preco) or pd.isna(mm200):
+        return "INDEFINIDO"
+
+    distancia = (preco / mm200) - 1
+
+    if distancia >= 0.10:
+        return f"ACIMA ({distancia * 100:.1f}%)"
+
+    if distancia >= 0:
+        return f"ACIMA PRÓXIMO ({distancia * 100:.1f}%)"
+
+    if distancia >= -0.10:
+        return f"ABAIXO PRÓXIMO ({distancia * 100:.1f}%)"
+
+    return f"ABAIXO ({distancia * 100:.1f}%)"
+
+
+def status_rsi(row):
+    rsi = row.get("rsi14", np.nan)
+
+    if pd.isna(rsi):
+        return "INDEFINIDO"
+
+    if rsi < 30:
+        return f"{rsi:.1f} SOBREVENDA FORTE"
+
+    if rsi < 35:
+        return f"{rsi:.1f} SOBREVENDA"
+
+    if rsi < 45:
+        return f"{rsi:.1f} FRACO"
+
+    if rsi <= 60:
+        return f"{rsi:.1f} NEUTRO"
+
+    if rsi <= 70:
+        return f"{rsi:.1f} FORTE"
+
+    return f"{rsi:.1f} SOBRECOMPRA"
+
+
+def status_momentum(row):
+    macd = row.get("macd", np.nan)
+    macd_sinal = row.get("macd_sinal", np.nan)
+    macd_hist = row.get("macd_hist", np.nan)
+    retorno_20d = row.get("retorno_20d", np.nan)
+    retorno_60d = row.get("retorno_60d", np.nan)
+
+    sinais = []
+
+    if pd.notna(macd) and pd.notna(macd_sinal):
+        sinais.append("MACD positivo" if macd > macd_sinal else "MACD negativo")
+
+    if pd.notna(macd_hist):
+        sinais.append("histograma positivo" if macd_hist > 0 else "histograma negativo")
+
+    if pd.notna(retorno_20d):
+        sinais.append("20d positivo" if retorno_20d > 0 else "20d negativo")
+
+    if pd.notna(retorno_60d):
+        sinais.append("60d positivo" if retorno_60d > 0 else "60d negativo")
+
+    positivos = sum("positivo" in s for s in sinais)
+    negativos = sum("negativo" in s for s in sinais)
+
+    if positivos >= 3:
+        resumo = "POSITIVO"
+    elif negativos >= 3:
+        resumo = "NEGATIVO"
+    else:
+        resumo = "MISTO"
+
+    return f"{resumo} ({'; '.join(sinais)})"
+
+
+def status_volume(row):
+    volume_forca = row.get("volume_forca", np.nan)
+
+    if pd.isna(volume_forca):
+        return "INDEFINIDO"
+
+    if volume_forca >= 1.5:
+        return f"FORTE ({volume_forca:.2f}x média)"
+
+    if volume_forca >= 1.0:
+        return f"NORMAL ({volume_forca:.2f}x média)"
+
+    if volume_forca >= 0.8:
+        return f"FRACO ({volume_forca:.2f}x média)"
+
+    return f"MUITO FRACO ({volume_forca:.2f}x média)"
+
+
+def status_volatilidade(row):
+    atr_pct = row.get("atr_pct", np.nan)
+
+    if pd.isna(atr_pct):
+        return "INDEFINIDA"
+
+    if atr_pct <= 0.025:
+        return f"BAIXA ({atr_pct * 100:.2f}%)"
+
+    if atr_pct <= 0.04:
+        return f"CONTROLADA ({atr_pct * 100:.2f}%)"
+
+    if atr_pct <= 0.06:
+        return f"MODERADA ({atr_pct * 100:.2f}%)"
+
+    return f"ELEVADA ({atr_pct * 100:.2f}%)"
+
+
+def conviccao_tecnica(score):
+    if score >= 80:
+        return "MUITO ALTA"
+
+    if score >= 65:
+        return "ALTA"
+
+    if score >= 50:
+        return "MODERADA"
+
+    if score >= 35:
+        return "BAIXA"
+
+    return "MUITO BAIXA"
+
+
+def risco_tecnico(row, score):
+    atr_pct = row.get("atr_pct", np.nan)
+    dist_mm200 = row.get("dist_mm200", np.nan)
+
+    if score < 35:
+        return "ELEVADO"
+
+    if pd.notna(atr_pct) and atr_pct > 0.06:
+        return "ELEVADO"
+
+    if pd.notna(dist_mm200) and dist_mm200 < -0.15:
+        return "MODERADO/ALTO"
+
+    if score < 50:
+        return "MODERADO"
+
+    return "CONTROLADO"
+
+
+def contribuicao_tecnica(row):
+    tendencia = score_tendencia(row) * 0.30
+    entrada = score_entrada(row) * 0.25
+    momentum = score_momentum(row) * 0.25
+    volume = score_volume(row) * 0.10
+    risco = score_risco(row) * 0.10
+
+    return (
+        f"Tendência {tendencia:.1f} pts; "
+        f"Entrada {entrada:.1f} pts; "
+        f"Momentum {momentum:.1f} pts; "
+        f"Volume {volume:.1f} pts; "
+        f"Risco {risco:.1f} pts"
+    )
+
+
+def diagnostico_tecnico(row, score):
+    tendencia = status_tendencia(row)
+    mm200 = status_mm200(row)
+    rsi = status_rsi(row)
+    momentum = status_momentum(row)
+    volume = status_volume(row)
+    volatilidade = status_volatilidade(row)
+    conviccao = conviccao_tecnica(score)
+    risco = risco_tecnico(row, score)
+    sinal = classificar_sinal(score)
+
+    return (
+        f"Tendência: {tendencia}. "
+        f"MM200: {mm200}. "
+        f"RSI: {rsi}. "
+        f"Momentum: {momentum}. "
+        f"Volume: {volume}. "
+        f"Volatilidade: {volatilidade}. "
+        f"Convicção técnica: {conviccao} ({score:.0f}/100). "
+        f"Risco técnico: {risco}. "
+        f"Decisão: {sinal}."
+    )
+
+
 def analisar_top20():
     top20 = carregar_top20()
 
@@ -419,6 +634,17 @@ def analisar_top20():
 
             "score_tecnico": score_tecnico,
             "sinal_tecnico": classificar_sinal(score_tecnico),
+
+            "tendencia_resumo": status_tendencia(ultima),
+            "mm200_status": status_mm200(ultima),
+            "rsi_status": status_rsi(ultima),
+            "momentum_status": status_momentum(ultima),
+            "volume_status": status_volume(ultima),
+            "volatilidade_status": status_volatilidade(ultima),
+            "conviccao_tecnica": conviccao_tecnica(score_tecnico),
+            "risco_tecnico": risco_tecnico(ultima, score_tecnico),
+            "contribuicao_tecnica": contribuicao_tecnica(ultima),
+            "diagnostico_tecnico": diagnostico_tecnico(ultima, score_tecnico),
         })
 
     resultado = pd.DataFrame(resultados)
@@ -448,4 +674,20 @@ def analisar_top20():
     print("Arquivo técnico salvo:")
     print(OUTPUT_FILE)
 
+    print("Colunas explicativas adicionadas:")
+    print("- tendencia_resumo")
+    print("- mm200_status")
+    print("- rsi_status")
+    print("- momentum_status")
+    print("- volume_status")
+    print("- volatilidade_status")
+    print("- conviccao_tecnica")
+    print("- risco_tecnico")
+    print("- contribuicao_tecnica")
+    print("- diagnostico_tecnico")
+
     return resultado
+
+
+if __name__ == "__main__":
+    analisar_top20()
