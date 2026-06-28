@@ -1,3 +1,9 @@
+# ============================================================
+# send_email.py
+# B3 FUNDAMENTALISTA ENGINE
+# Envio automático do relatório institucional em PDF
+# ============================================================
+
 import os
 import smtplib
 from pathlib import Path
@@ -5,36 +11,22 @@ from email.message import EmailMessage
 
 
 OUTPUT_DIR = Path("output")
+PDF_FILE = OUTPUT_DIR / "relatorio_institucional_b3.pdf"
 
 
 def anexar_arquivo(msg, caminho):
     caminho = Path(caminho)
 
     if not caminho.exists():
-        print(f"Arquivo não encontrado para anexo: {caminho}")
-        return
+        raise FileNotFoundError(f"Arquivo não encontrado para anexo: {caminho}")
 
     with open(caminho, "rb") as f:
         msg.add_attachment(
             f.read(),
             maintype="application",
-            subtype="octet-stream",
+            subtype="pdf",
             filename=caminho.name
         )
-
-
-def ler_texto(caminho, limite=5000):
-    caminho = Path(caminho)
-
-    if not caminho.exists():
-        return "Auditoria IA não encontrada."
-
-    texto = caminho.read_text(encoding="utf-8", errors="ignore")
-
-    if len(texto) > limite:
-        texto = texto[:limite] + "\n\n...[texto reduzido]"
-
-    return texto
 
 
 def main():
@@ -47,57 +39,43 @@ def main():
     if not all([smtp_server, smtp_user, smtp_password, email_to]):
         raise Exception("Secrets de e-mail não configurados corretamente.")
 
-    auditoria = ler_texto(OUTPUT_DIR / "auditoria_ia.txt")
+    if not PDF_FILE.exists():
+        raise FileNotFoundError(
+            "PDF institucional não encontrado. Verifique se engine/pdf_report.py rodou antes do envio."
+        )
 
     msg = EmailMessage()
-    msg["Subject"] = "Relatório B3 Full Portfolio Pipeline"
+    msg["Subject"] = "Relatório Institucional B3 Fundamentalista Engine"
     msg["From"] = smtp_user
     msg["To"] = email_to
 
-    corpo = f"""
+    corpo = """
 B3 FUNDAMENTALISTA ENGINE
 
 Execução automática concluída com sucesso.
 
-============================================================
-AUDITORIA IA
-============================================================
+Segue em anexo o relatório institucional em PDF, contendo:
 
-{auditoria}
-
-============================================================
-
-Arquivos anexos:
-- report.txt
-- auditoria_ia.txt
-- top20_premium.csv
-- top20_tecnico.csv
-- carteira_institucional.csv
-- carteira_diversificada.csv
+- Capa
+- Resumo executivo
+- Carteira sugerida
+- Gráficos
+- Auditoria da IA
+- Conclusão
 
 Gerado automaticamente pelo GitHub Actions.
 """
 
     msg.set_content(corpo)
 
-    arquivos = [
-        OUTPUT_DIR / "report.txt",
-        OUTPUT_DIR / "auditoria_ia.txt",
-        OUTPUT_DIR / "top20_premium.csv",
-        OUTPUT_DIR / "top20_tecnico.csv",
-        OUTPUT_DIR / "carteira_institucional.csv",
-        OUTPUT_DIR / "carteira_diversificada.csv",
-    ]
-
-    for arquivo in arquivos:
-        anexar_arquivo(msg, arquivo)
+    anexar_arquivo(msg, PDF_FILE)
 
     with smtplib.SMTP(smtp_server, smtp_port) as server:
         server.starttls()
         server.login(smtp_user, smtp_password)
         server.send_message(msg)
 
-    print("E-mail enviado com sucesso.")
+    print("E-mail enviado com sucesso com PDF institucional.")
 
 
 if __name__ == "__main__":
