@@ -1,7 +1,29 @@
-pandas>=2.0.0
+# ============================================================
+# B3 FUNDAMENTALISTA ENGINE
+# Dependências Institucionais
+# ============================================================
+
+# Dados
+pandas>=2.2.0
 numpy>=1.26.0
-requests>=2.31.0
+
+# Mercado
 yfinance>=0.2.65
-openpyxl>=3.1.2
+requests>=2.31.0
 lxml>=5.0.0
-openai>=1.0.0
+
+# Planilhas
+openpyxl>=3.1.2
+
+# PDF Institucional
+reportlab>=4.2.0
+
+# Gráficos
+matplotlib>=3.8.0
+
+# OpenAI Auditoria IA
+openai>=1.95.0
+
+# Utilidades
+python-dateutil>=2.9.0
+pillow>=10.3.0
