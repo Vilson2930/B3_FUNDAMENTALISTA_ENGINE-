@@ -1,7 +1,7 @@
 # ============================================================
 # portfolio_engine.py
 # B3 FUNDAMENTALISTA ENGINE
-# Carteira Institucional Final — V2 Explicável
+# Carteira Institucional Final — V3 Explicável com Top 15
 #
 # Filosofia:
 # - O Fundamentalista escolhe as melhores empresas.
@@ -28,6 +28,7 @@ PESO_MAXIMO_ATIVO = 0.10
 PESO_MINIMO_ATIVO = 0.02
 
 MIN_SCORE_CARTEIRA = 50
+MAX_ATIVOS_CARTEIRA = 15
 
 
 # ============================================================
@@ -474,6 +475,14 @@ def montar_carteira():
 
     base = base[base["score_final_carteira"] >= MIN_SCORE_CARTEIRA].copy()
 
+    # Mantém a carteira institucional enxuta e compatível com o relatório.
+    # O Top20 técnico continua sendo analisado, mas a carteira final usa apenas
+    # os 15 melhores ativos por score final e score técnico.
+    base = base.sort_values(
+        ["score_final_carteira", "score_tecnico"],
+        ascending=False,
+    ).head(MAX_ATIVOS_CARTEIRA).reset_index(drop=True)
+
     base = calcular_allocation_score(base)
     base = normalizar_pesos_com_limite(base)
 
@@ -504,7 +513,7 @@ def montar_carteira():
 
     print()
     print("=" * 70)
-    print("CARTEIRA INSTITUCIONAL V2 — EXPLICÁVEL")
+    print("CARTEIRA INSTITUCIONAL V3 — TOP 15 EXPLICÁVEL")
     print("=" * 70)
 
     colunas = [
