@@ -1,7 +1,7 @@
 # ============================================================
 # send_email.py
 # B3 FUNDAMENTALISTA ENGINE
-# Envio Automático do Relatório Institucional
+# Institutional Report Mailer
 # ============================================================
 
 import os
@@ -15,20 +15,18 @@ OUTPUT_DIR = Path("output")
 PDF_FILE = OUTPUT_DIR / "relatorio_institucional_b3.pdf"
 
 
-def anexar_pdf(msg, caminho_pdf):
-    caminho_pdf = Path(caminho_pdf)
+def anexar_pdf(msg, caminho):
+    caminho = Path(caminho)
 
-    if not caminho_pdf.exists():
-        raise FileNotFoundError(
-            f"PDF não encontrado: {caminho_pdf}"
-        )
+    if not caminho.exists():
+        raise FileNotFoundError(f"PDF não encontrado: {caminho}")
 
-    with open(caminho_pdf, "rb") as f:
+    with open(caminho, "rb") as f:
         msg.add_attachment(
             f.read(),
             maintype="application",
             subtype="pdf",
-            filename=caminho_pdf.name,
+            filename=caminho.name,
         )
 
 
@@ -40,25 +38,17 @@ def main():
     smtp_password = os.getenv("SMTP_PASSWORD")
     email_to = os.getenv("EMAIL_TO")
 
-    if not all([
-        smtp_server,
-        smtp_port,
-        smtp_user,
-        smtp_password,
-        email_to
-    ]):
-        raise Exception(
-            "Secrets SMTP não configurados corretamente."
-        )
+    if not all([smtp_server, smtp_user, smtp_password, email_to]):
+        raise Exception("Configuração SMTP incompleta.")
 
     if not PDF_FILE.exists():
         raise FileNotFoundError(
-            "Relatório PDF não encontrado."
+            "Relatório institucional não encontrado."
         )
 
     msg = EmailMessage()
 
-    msg["Subject"] = "B3 Fundamentalista Engine | Relatório Institucional"
+    msg["Subject"] = "B3 Fundamentalista Engine | Institutional Portfolio Report"
     msg["From"] = smtp_user
     msg["To"] = email_to
     msg["Date"] = formatdate(localtime=True)
@@ -66,11 +56,11 @@ def main():
     corpo = """
 Olá,
 
-A execução automática do B3 Fundamentalista Engine foi concluída com sucesso.
+O ciclo de processamento do B3 Fundamentalista Engine foi concluído com sucesso.
 
-O relatório institucional em PDF está anexado.
+O relatório institucional em PDF segue anexado.
 
-O documento contém:
+Conteúdo do relatório:
 
 • Resumo Executivo
 
@@ -84,18 +74,18 @@ O documento contém:
 
 • Auditoria Institucional com Inteligência Artificial
 
-• Metodologia do Motor
+• Metodologia
 
 • Conclusão Executiva
 
-Este relatório é gerado automaticamente pelo GitHub Actions.
+------------------------------------------------------------
 
---------------------------------------------------------
+Relatório gerado automaticamente pelo GitHub Actions.
 
 B3 FUNDAMENTALISTA ENGINE
 Institutional Portfolio Report
 
---------------------------------------------------------
+------------------------------------------------------------
 """
 
     msg.set_content(corpo)
@@ -103,24 +93,18 @@ Institutional Portfolio Report
     anexar_pdf(msg, PDF_FILE)
 
     print("=" * 70)
-    print("ENVIANDO E-MAIL")
+    print("ENVIANDO RELATÓRIO")
     print("=" * 70)
     print(f"Destino : {email_to}")
     print(f"Arquivo : {PDF_FILE.name}")
 
     with smtplib.SMTP(smtp_server, smtp_port) as server:
-
         server.starttls()
-
-        server.login(
-            smtp_user,
-            smtp_password
-        )
-
+        server.login(smtp_user, smtp_password)
         server.send_message(msg)
 
     print("=" * 70)
-    print("E-MAIL ENVIADO COM SUCESSO")
+    print("RELATÓRIO ENVIADO COM SUCESSO")
     print("=" * 70)
 
 
