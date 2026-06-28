@@ -21,16 +21,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Fundamental Engine
-        timeout-minutes: 10
-        run: |
-          python main.py
-
-      - name: Run Technical Engine
-        timeout-minutes: 5
-        run: |
-          python -c "from engine.technical_engine import analisar_top20; analisar_top20()"
-
       - name: Run Portfolio Engine
         timeout-minutes: 2
         run: |
