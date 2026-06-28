@@ -1,14 +1,13 @@
 # ============================================================
 # portfolio_engine.py
 # B3 FUNDAMENTALISTA ENGINE
-# Carteira Institucional Final — V3 Explicável com Top 15
+# Carteira Institucional Final — V4 com Setor Oficial B3
 #
 # Filosofia:
-# - O Fundamentalista escolhe as melhores empresas.
-# - O Técnico calcula o momento de entrada.
-# - O Portfolio combina fundamento + técnico e transforma em carteira.
-# - Score Final = 70% Fundamentalista + 30% Técnico.
-# - A decisão final deve ser conservadora, explicável e auditável.
+# O Fundamentalista escolhe as melhores empresas.
+# O Técnico calcula o momento de entrada.
+# O Portfolio combina fundamentos + técnico, monta a carteira
+# e garante consistência setorial usando data/setores_b3.csv.
 # ============================================================
 
 from pathlib import Path
@@ -18,22 +17,23 @@ import numpy as np
 
 INPUT_TECNICO = Path("output/top20_tecnico.csv")
 OUTPUT_FILE = Path("output/carteira_institucional.csv")
-METRICS_FILE = Path("output/portfolio_metrics.csv")
+PORTFOLIO_METRICS_FILE = Path("output/portfolio_metrics.csv")
+SETOR_FILE = Path("data/setores_b3.csv")
+AUDITORIA_SETOR_PORTFOLIO = Path("output/auditoria_setores_portfolio.csv")
 
 
 PESO_FUNDAMENTAL = 0.70
 PESO_TECNICO = 0.30
 
+MAX_ATIVOS_CARTEIRA = 15
 PESO_MAXIMO_ATIVO = 0.10
 PESO_MINIMO_ATIVO = 0.02
-
-MIN_SCORE_CARTEIRA = 50
-MAX_ATIVOS_CARTEIRA = 15
 
 
 # ============================================================
 # LEITURA
 # ============================================================
+
 
 def carregar_csv(caminho):
     if not caminho.exists():
@@ -50,60 +50,172 @@ def carregar_csv(caminho):
 
 
 # ============================================================
-# NORMALIZAÇÃO
+# SETORES OFICIAIS B3
 # ============================================================
 
-def normalizar_base(base):
-    base = base.copy()
 
-    if "ticker" in base.columns:
-        base["ticker"] = base["ticker"].astype(str).str.strip().str.upper()
+def carregar_setores_b3():
+    if not SETOR_FILE.exists():
+        print("ATENÇÃO: data/setores_b3.csv não encontrado. Mantendo setor recebido.")
+        return pd.DataFrame()
 
-    defaults = {
-        "score_fundamental": 50,
-        "score_tecnico": 50,
-        "moat_score": 50,
-        "score_tendencia": 50,
-        "score_entrada": 50,
-        "score_momentum": 50,
-        "score_volume": 50,
-        "score_risco": 50,
-    }
+    setores = pd.read_csv(SETOR_FILE, encoding="utf-8-sig")
+    setores.columns = [str(c).strip() for c in setores.columns]
 
-    for coluna, valor in defaults.items():
-        if coluna not in base.columns:
-            base[coluna] = valor
-        base[coluna] = pd.to_numeric(base[coluna], errors="coerce").fillna(valor)
+    if "ticker" not in setores.columns or "setor_b3" not in setores.columns:
+        print("ATENÇÃO: data/setores_b3.csv precisa ter as colunas ticker e setor_b3.")
+        return pd.DataFrame()
 
-    texto_defaults = {
-        "empresa": "",
-        "setor": "SEM SETOR",
-        "rating": "N/A",
-        "sinal_tecnico": "NEUTRO",
-        "diagnostico_tecnico": "Diagnóstico técnico não disponível.",
-        "conviccao_tecnica": "N/A",
-        "risco_tecnico": "N/A",
-        "tendencia_resumo": "N/A",
-        "mm200_status": "N/A",
-        "rsi_status": "N/A",
-        "momentum_status": "N/A",
-        "volume_status": "N/A",
-        "volatilidade_status": "N/A",
-    }
+    setores["ticker"] = setores["ticker"].astype(str).str.upper().str.strip()
 
-    for coluna, valor in texto_defaults.items():
-        if coluna not in base.columns:
-            base[coluna] = valor
-        base[coluna] = base[coluna].fillna(valor)
+    colunas = [
+        c for c in ["ticker", "setor_b3", "subsetor_b3", "segmento_b3"]
+        if c in setores.columns
+    ]
 
-    return base
+    setores = setores[colunas].drop_duplicates("ticker")
+    return setores
+
+
+def aplicar_setor_oficial_b3(df):
+    """
+    Regra institucional:
+    - Setor oficial vem de data/setores_b3.csv.
+    - BRAPI/Yahoo/API ficam apenas como fallback.
+    - O portfolio nunca deve depender cegamente do setor recebido no top20_tecnico.csv.
+    """
+    df = df.copy()
+
+    if "ticker" not in df.columns:
+        return df
+
+    df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+
+    if "setor" not in df.columns:
+        df["setor"] = "SEM SETOR"
+
+    df["setor_original_entrada"] = df["setor"].fillna("SEM SETOR")
+
+    setores_b3 = carregar_setores_b3()
+
+    if setores_b3.empty:
+        df["setor_fonte"] = "ENTRADA_FALLBACK"
+        df["subsetor_b3"] = df.get("subsetor_b3", "")
+        df["segmento_b3"] = df.get("segmento_b3", "")
+        return df
+
+    df = df.merge(setores_b3, on="ticker", how="left")
+
+    tem_setor_b3 = (
+        df["setor_b3"].notna()
+        & (df["setor_b3"].astype(str).str.strip() != "")
+    )
+
+    df["setor"] = np.where(
+        tem_setor_b3,
+        df["setor_b3"].astype(str).str.strip(),
+        df["setor_original_entrada"].fillna("SEM SETOR").astype(str).str.strip(),
+    )
+
+    df["setor_fonte"] = np.where(
+        tem_setor_b3,
+        "B3_OFICIAL",
+        "ENTRADA_FALLBACK",
+    )
+
+    df["setor_divergente"] = np.where(
+        tem_setor_b3
+        & (df["setor_original_entrada"].astype(str).str.strip() != df["setor"].astype(str).str.strip()),
+        "SIM",
+        "NÃO",
+    )
+
+    df = df.drop(columns=["setor_b3"], errors="ignore")
+
+    Path("output").mkdir(exist_ok=True)
+    colunas_auditoria = [
+        c for c in [
+            "ticker",
+            "empresa",
+            "setor_original_entrada",
+            "setor",
+            "setor_fonte",
+            "setor_divergente",
+            "subsetor_b3",
+            "segmento_b3",
+        ]
+        if c in df.columns
+    ]
+
+    df[colunas_auditoria].to_csv(
+        AUDITORIA_SETOR_PORTFOLIO,
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+    print("Auditoria setorial do portfolio salva em:")
+    print(AUDITORIA_SETOR_PORTFOLIO)
+
+    return df
 
 
 # ============================================================
-# CLASSIFICAÇÕES INSTITUCIONAIS
+# CLASSIFICAÇÕES
 # ============================================================
+
+
+def classificar_decisao(row):
+    score_final = float(row.get("score_final_carteira", 0) or 0)
+    score_tecnico = float(row.get("score_tecnico", 0) or 0)
+    sinal = str(row.get("sinal_tecnico", "")).upper()
+    risco = str(row.get("risco_tecnico", "")).upper()
+
+    # Regra conservadora: técnico ruim bloqueia compra, mesmo com fundamento forte.
+    if sinal in ["EVITAR", "FRACO"] or score_tecnico < 50 or "ELEVADO" in risco:
+        return "NÃO PRIORIZAR AGORA"
+
+    if score_final >= 80 and score_tecnico >= 75:
+        return "COMPRAR AGORA"
+
+    if score_final >= 70 and score_tecnico >= 60:
+        return "COMPRAR PARCIAL"
+
+    if score_final >= 60:
+        return "AGUARDAR MELHOR ENTRADA"
+
+    return "NÃO PRIORIZAR AGORA"
+
+
+def classificar_conviccao(score):
+    score = float(score or 0)
+
+    if score >= 80:
+        return "MUITO ALTA"
+    if score >= 70:
+        return "ALTA"
+    if score >= 60:
+        return "MÉDIA"
+    if score >= 50:
+        return "BAIXA"
+    return "MUITO BAIXA"
+
+
+def classificar_prioridade(row):
+    decisao = str(row.get("decisao", "")).upper()
+    score = float(row.get("score_final_carteira", 0) or 0)
+
+    if "COMPRAR AGORA" in decisao:
+        return "PRIORIDADE 1"
+    if "COMPRAR PARCIAL" in decisao:
+        return "PRIORIDADE 2"
+    if "AGUARDAR" in decisao and score >= 60:
+        return "PRIORIDADE 3"
+    return "OBSERVAÇÃO"
+
 
 def rating_institucional(score):
+    score = float(score or 0)
+
     if score >= 90:
         return "AAA"
     if score >= 85:
@@ -123,225 +235,144 @@ def rating_institucional(score):
     return "B"
 
 
-def classificar_conviccao(score):
-    if score >= 80:
-        return "MUITO ALTA"
-    if score >= 70:
-        return "ALTA"
-    if score >= 60:
-        return "MÉDIA"
-    if score >= 50:
-        return "BAIXA"
-    return "MUITO BAIXA"
-
-
-def classificar_prioridade(score):
-    if score >= 80:
-        return "PRIORIDADE 1"
-    if score >= 70:
-        return "PRIORIDADE 2"
-    if score >= 60:
-        return "PRIORIDADE 3"
-    return "OBSERVAÇÃO"
-
-
 def classificar_risco_carteira(row):
-    score = row.get("score_final_carteira", 0)
-    tecnico = row.get("score_tecnico", 50)
+    risco_tecnico = str(row.get("risco_tecnico", "")).upper()
     sinal = str(row.get("sinal_tecnico", "")).upper()
-    rating = str(row.get("rating_carteira", "")).upper()
+    conv_tec = str(row.get("conviccao_tecnica", "")).upper()
+    score_tecnico = float(row.get("score_tecnico", 0) or 0)
 
-    pontos_risco = 0
+    if "ELEVADO" in risco_tecnico or sinal == "EVITAR" or score_tecnico < 35:
+        return "RISCO ELEVADO"
 
-    if tecnico < 45:
-        pontos_risco += 2
-    elif tecnico < 60:
-        pontos_risco += 1
+    if "MODERADO/ALTO" in risco_tecnico or sinal == "FRACO" or "MUITO BAIXA" in conv_tec:
+        return "RISCO MODERADO/ALTO"
 
-    if "EVITAR" in sinal:
-        pontos_risco += 2
-    elif "FRACO" in sinal:
-        pontos_risco += 1
+    if "MODERADO" in risco_tecnico or score_tecnico < 55:
+        return "RISCO MODERADO"
 
-    if rating in ["B", "BB"]:
-        pontos_risco += 1
-
-    if score < 60:
-        pontos_risco += 1
-
-    if pontos_risco >= 4:
-        return "ELEVADO"
-    if pontos_risco >= 2:
-        return "MODERADO/ALTO"
-    if pontos_risco == 1:
-        return "MODERADO"
-    return "CONTROLADO"
+    return "RISCO CONTROLADO"
 
 
 # ============================================================
-# DECISÃO FINAL
+# SCORE E PESOS
 # ============================================================
 
-def classificar_decisao(row):
-    score = row.get("score_final_carteira", 0)
-    tecnico = row.get("score_tecnico", 50)
-    sinal = str(row.get("sinal_tecnico", "")).upper()
-
-    # Trava institucional: técnico muito fraco não vira compra,
-    # mesmo que o fundamento seja bom.
-    if "EVITAR" in sinal or tecnico < 35:
-        return "NÃO PRIORIZAR AGORA"
-
-    if "FRACO" in sinal or tecnico < 50:
-        if score >= 70:
-            return "AGUARDAR MELHOR ENTRADA"
-        return "NÃO PRIORIZAR AGORA"
-
-    if score >= 80 and tecnico >= 75:
-        return "COMPRAR AGORA"
-
-    if score >= 70 and tecnico >= 60:
-        return "COMPRAR PARCIAL"
-
-    if score >= 60:
-        return "AGUARDAR MELHOR ENTRADA"
-
-    return "NÃO PRIORIZAR AGORA"
-
-
-# ============================================================
-# SCORE FINAL
-# ============================================================
 
 def calcular_score_final(base):
     base = base.copy()
 
     base["score_final_carteira"] = (
-        base["score_fundamental"] * PESO_FUNDAMENTAL +
-        base["score_tecnico"] * PESO_TECNICO
+        base["score_fundamental"] * PESO_FUNDAMENTAL
+        + base["score_tecnico"] * PESO_TECNICO
     )
-
-    base["score_final_carteira"] = base["score_final_carteira"].round(2)
 
     return base
 
 
-# ============================================================
-# PESOS
-# ============================================================
+def calcular_allocation_score(row):
+    score = float(row.get("score_final_carteira", 0) or 0)
+    score_tecnico = float(row.get("score_tecnico", 0) or 0)
+    decisao = str(row.get("decisao", "")).upper()
+    risco = str(row.get("risco_carteira", "")).upper()
+    conv_tec = str(row.get("conviccao_tecnica", "")).upper()
 
-def calcular_allocation_score(df):
+    fator = 1.0
+
+    if "COMPRAR" in decisao:
+        fator *= 1.10
+    if "AGUARDAR" in decisao:
+        fator *= 0.90
+    if "NÃO" in decisao or "NAO" in decisao or "OBSERVAÇÃO" in decisao:
+        fator *= 0.60
+
+    if "MUITO ALTA" in conv_tec:
+        fator *= 1.08
+    elif "ALTA" in conv_tec:
+        fator *= 1.04
+    elif "BAIXA" in conv_tec:
+        fator *= 0.85
+    elif "MUITO BAIXA" in conv_tec:
+        fator *= 0.70
+
+    if "ELEVADO" in risco:
+        fator *= 0.60
+    elif "MODERADO/ALTO" in risco:
+        fator *= 0.75
+    elif "MODERADO" in risco:
+        fator *= 0.90
+
+    # Garante que técnico muito fraco reduza peso.
+    if score_tecnico < 40:
+        fator *= 0.70
+    elif score_tecnico < 50:
+        fator *= 0.85
+
+    return max(score, 0) ** 2 * fator
+
+
+def redistribuir_limite_ativo(df):
     df = df.copy()
 
-    score = df["score_final_carteira"].clip(lower=0)
+    for _ in range(50):
+        acima = df["peso_sugerido"] > PESO_MAXIMO_ATIVO
 
-    bonus_compra = np.where(
-        df["decisao"].astype(str).str.upper().str.contains("COMPRAR"),
-        1.10,
-        1.00,
-    )
+        if not acima.any():
+            break
 
-    penal_aguardar = np.where(
-        df["decisao"].astype(str).str.upper().str.contains("AGUARDAR"),
-        0.90,
-        1.00,
-    )
+        excesso = (df.loc[acima, "peso_sugerido"] - PESO_MAXIMO_ATIVO).sum()
+        df.loc[acima, "peso_sugerido"] = PESO_MAXIMO_ATIVO
 
-    penal_nao_priorizar = np.where(
-        df["decisao"].astype(str).str.upper().str.contains("NÃO|NAO|EVITAR"),
-        0.65,
-        1.00,
-    )
+        elegiveis = ~acima
+        soma_elegiveis = df.loc[elegiveis, "peso_sugerido"].sum()
 
-    bonus_conviccao = np.where(
-        df["conviccao"].astype(str).str.upper().str.contains("ALTA"),
-        1.08,
-        1.00,
-    )
+        if soma_elegiveis <= 0 or excesso <= 0:
+            break
 
-    penal_risco = np.where(
-        df["risco_carteira"].astype(str).str.upper().str.contains("ELEVADO"),
-        0.65,
-        np.where(
-            df["risco_carteira"].astype(str).str.upper().str.contains("MODERADO/ALTO"),
-            0.80,
-            1.00,
-        ),
-    )
-
-    df["allocation_score"] = (
-        score * bonus_compra * penal_aguardar * penal_nao_priorizar * bonus_conviccao * penal_risco
-    ) ** 2
+        df.loc[elegiveis, "peso_sugerido"] += (
+            df.loc[elegiveis, "peso_sugerido"] / soma_elegiveis
+        ) * excesso
 
     return df
 
 
-def normalizar_pesos_com_limite(df):
+def calcular_peso_inteligente(df):
     df = df.copy()
 
-    if df.empty:
-        return df
+    df["allocation_score"] = df.apply(calcular_allocation_score, axis=1)
 
-    total_score = df["allocation_score"].sum()
+    total = df["allocation_score"].sum()
 
-    if total_score <= 0:
+    if total <= 0:
         df["peso_sugerido"] = 1 / len(df)
     else:
-        df["peso_sugerido"] = df["allocation_score"] / total_score
+        df["peso_sugerido"] = df["allocation_score"] / total
 
-    # Redistribuição iterativa respeitando limite máximo por ativo.
-    for _ in range(100):
-        acima = df["peso_sugerido"] > PESO_MAXIMO_ATIVO
+    df = redistribuir_limite_ativo(df)
 
-        if not acima.any():
-            break
+    # Peso mínimo só para ativos que não estão em risco elevado.
+    aprovado_minimo = (
+        df["score_final_carteira"] >= 55
+    ) & (~df["risco_carteira"].astype(str).str.upper().str.contains("ELEVADO"))
 
-        excesso = (df.loc[acima, "peso_sugerido"] - PESO_MAXIMO_ATIVO).sum()
-        df.loc[acima, "peso_sugerido"] = PESO_MAXIMO_ATIVO
-
-        elegiveis = ~acima
-        total_elegivel = df.loc[elegiveis, "peso_sugerido"].sum()
-
-        if total_elegivel <= 0:
-            break
-
-        df.loc[elegiveis, "peso_sugerido"] += (
-            df.loc[elegiveis, "peso_sugerido"] / total_elegivel
-        ) * excesso
+    df.loc[aprovado_minimo, "peso_sugerido"] = df.loc[
+        aprovado_minimo,
+        "peso_sugerido",
+    ].clip(lower=PESO_MINIMO_ATIVO)
 
     total = df["peso_sugerido"].sum()
-
     if total > 0:
         df["peso_sugerido"] = df["peso_sugerido"] / total
 
-    # Segunda trava para evitar que a normalização estoure o teto.
-    for _ in range(100):
-        acima = df["peso_sugerido"] > PESO_MAXIMO_ATIVO
-        if not acima.any():
-            break
+    df = redistribuir_limite_ativo(df)
 
-        excesso = (df.loc[acima, "peso_sugerido"] - PESO_MAXIMO_ATIVO).sum()
-        df.loc[acima, "peso_sugerido"] = PESO_MAXIMO_ATIVO
+    total = df["peso_sugerido"].sum()
+    if total > 0:
+        df["peso_sugerido"] = df["peso_sugerido"] / total
 
-        elegiveis = ~acima
-        total_elegivel = df.loc[elegiveis, "peso_sugerido"].sum()
-
-        if total_elegivel <= 0:
-            break
-
-        capacidade = PESO_MAXIMO_ATIVO - df.loc[elegiveis, "peso_sugerido"]
-        capacidade = capacidade.clip(lower=0)
-        capacidade_total = capacidade.sum()
-
-        if capacidade_total <= 0:
-            break
-
-        incremento = capacidade / capacidade_total * excesso
-        df.loc[elegiveis, "peso_sugerido"] += incremento
-
-    df["peso_sugerido_pct"] = (df["peso_sugerido"] * 100).round(2)
+    # Pequena tolerância para arredondamento.
+    df["peso_sugerido_pct"] = df["peso_sugerido"] * 100
     df["validacao_peso_ativo"] = np.where(
-        df["peso_sugerido"] <= PESO_MAXIMO_ATIVO + 1e-9,
+        df["peso_sugerido"] <= PESO_MAXIMO_ATIVO + 1e-8,
         "OK",
         "ACIMA DO LIMITE",
     )
@@ -350,32 +381,31 @@ def normalizar_pesos_com_limite(df):
 
 
 # ============================================================
-# EXPLICAÇÃO DA DECISÃO
+# EXPLICAÇÃO
 # ============================================================
+
 
 def gerar_motivo(row):
     motivos = []
 
-    score_fund = row.get("score_fundamental", 0)
-    score_tec = row.get("score_tecnico", 0)
-    moat = row.get("moat_score", 0)
+    sf = float(row.get("score_fundamental", 0) or 0)
+    st = float(row.get("score_tecnico", 0) or 0)
+    moat = float(row.get("moat_score", 0) or 0)
     sinal = str(row.get("sinal_tecnico", "")).upper()
-    risco = str(row.get("risco_carteira", "")).upper()
+    risco = str(row.get("risco_tecnico", "")).upper()
 
-    if score_fund >= 75:
+    if sf >= 75:
         motivos.append("fundamentos fortes")
-    elif score_fund >= 65:
+    elif sf >= 65:
         motivos.append("fundamentos bons")
-    elif score_fund >= 55:
-        motivos.append("fundamentos moderados")
     else:
-        motivos.append("fundamentos frágeis")
+        motivos.append("fundamentos moderados")
 
-    if score_tec >= 80:
+    if st >= 80:
         motivos.append("momento técnico muito favorável")
-    elif score_tec >= 65:
+    elif st >= 65:
         motivos.append("momento técnico favorável")
-    elif score_tec >= 50:
+    elif st >= 50:
         motivos.append("momento técnico neutro")
     else:
         motivos.append("momento técnico fraco")
@@ -383,7 +413,7 @@ def gerar_motivo(row):
     if moat >= 75:
         motivos.append("moat relevante")
 
-    if "FRACO" in sinal or "EVITAR" in sinal:
+    if sinal in ["EVITAR", "FRACO"]:
         motivos.append("entrada exige cautela")
 
     if "ELEVADO" in risco:
@@ -391,50 +421,59 @@ def gerar_motivo(row):
     elif "MODERADO/ALTO" in risco:
         motivos.append("risco técnico moderado/alto")
 
+    if row.get("setor_fonte", "") == "B3_OFICIAL":
+        motivos.append("setor validado por base B3")
+
     return "; ".join(motivos)
 
 
 def gerar_parecer_portfolio(row):
-    ticker = row.get("ticker", "")
-    decisao = row.get("decisao", "")
-    conviccao = row.get("conviccao", "")
-    peso = row.get("peso_sugerido_pct", 0)
-    diagnostico = row.get("diagnostico_tecnico", "")
-
     return (
-        f"{ticker}: decisão {decisao}; convicção {conviccao}; "
-        f"peso sugerido {peso:.2f}%. {diagnostico}"
+        f"{row.get('ticker', 'N/A')}: {row.get('motivo_decisao', '')}. "
+        f"Decisão: {row.get('decisao', 'N/A')}. "
+        f"Peso sugerido: {float(row.get('peso_sugerido_pct', 0) or 0):.2f}%."
     )
 
 
 # ============================================================
-# MÉTRICAS DA CARTEIRA
+# MÉTRICAS
 # ============================================================
 
-def calcular_metricas_portfolio(df):
+
+def gerar_metricas_portfolio(df):
     if df.empty:
         return pd.DataFrame()
 
+    decisoes = df["decisao"].fillna("").astype(str).str.upper()
+    riscos = df["risco_carteira"].fillna("").astype(str).str.upper()
+
     metricas = {
         "qtd_ativos": len(df),
-        "score_medio_carteira": df["score_final_carteira"].mean(),
-        "score_fundamental_medio": df["score_fundamental"].mean(),
-        "score_tecnico_medio": df["score_tecnico"].mean(),
-        "peso_top5_pct": df.sort_values("peso_sugerido", ascending=False).head(5)["peso_sugerido"].sum() * 100,
-        "qtd_comprar": df["decisao"].astype(str).str.contains("COMPRAR", case=False, na=False).sum(),
-        "qtd_aguardar": df["decisao"].astype(str).str.contains("AGUARDAR", case=False, na=False).sum(),
-        "qtd_nao_priorizar": df["decisao"].astype(str).str.contains("NÃO|NAO", case=False, na=False).sum(),
-        "qtd_risco_elevado": df["risco_carteira"].astype(str).str.contains("ELEVADO", case=False, na=False).sum(),
+        "score_medio_carteira": float(df["score_final_carteira"].mean()),
+        "score_tecnico_medio": float(df["score_tecnico"].mean()),
+        "score_fundamental_medio": float(df["score_fundamental"].mean()),
+        "peso_total_pct": float(df["peso_sugerido_pct"].sum()),
+        "peso_top5_pct": float(df.sort_values("peso_sugerido_pct", ascending=False).head(5)["peso_sugerido_pct"].sum()),
+        "peso_maximo_real_pct": float(df["peso_sugerido_pct"].max()),
         "peso_maximo_ativo_pct": PESO_MAXIMO_ATIVO * 100,
-        "soma_pesos_pct": df["peso_sugerido"].sum() * 100,
+        "soma_pesos_pct": float(df["peso_sugerido_pct"].sum()),
+        "comprar": int(decisoes.str.contains("COMPRAR").sum()),
+        "aguardar": int(decisoes.str.contains("AGUARDAR").sum()),
+        "nao_priorizar": int(decisoes.str.contains("NÃO|NAO|EVITAR").sum()),
+        "risco_controlado": int(riscos.str.contains("CONTROLADO").sum()),
+        "risco_moderado": int(riscos.str.contains("MODERADO").sum()),
+        "risco_elevado": int(riscos.str.contains("ELEVADO").sum()),
+        "setores_b3_validados": int((df.get("setor_fonte", "") == "B3_OFICIAL").sum()) if "setor_fonte" in df.columns else 0,
+        "setores_fallback": int((df.get("setor_fonte", "") != "B3_OFICIAL").sum()) if "setor_fonte" in df.columns else len(df),
     }
 
     return pd.DataFrame([metricas])
 
 
 # ============================================================
-# EXECUÇÃO PRINCIPAL
+# MOTOR PRINCIPAL
 # ============================================================
+
 
 def montar_carteira():
     base = carregar_csv(INPUT_TECNICO)
@@ -449,15 +488,38 @@ def montar_carteira():
     print("Linhas:", len(base))
     print("Colunas:", list(base.columns))
 
-    base = normalizar_base(base)
+    if "ticker" in base.columns:
+        base["ticker"] = base["ticker"].astype(str).str.strip().str.upper()
+
+    # Garante consistência setorial no portfolio.
+    base = aplicar_setor_oficial_b3(base)
+
+    colunas_padrao = {
+        "score_fundamental": 50,
+        "score_tecnico": 50,
+        "moat_score": 50,
+        "sinal_tecnico": "NEUTRO",
+        "conviccao_tecnica": "N/A",
+        "risco_tecnico": "N/A",
+        "diagnostico_tecnico": "N/A",
+    }
+
+    for coluna, valor in colunas_padrao.items():
+        if coluna not in base.columns:
+            print(f"ATENÇÃO: coluna {coluna} não encontrada. Usando {valor}.")
+            base[coluna] = valor
+
+    for coluna in ["score_fundamental", "score_tecnico", "moat_score"]:
+        base[coluna] = pd.to_numeric(base[coluna], errors="coerce").fillna(50)
 
     print()
     print("Amostra antes do cálculo:")
     colunas_debug = [
         "ticker",
+        "setor",
+        "setor_fonte",
         "score_fundamental",
         "score_tecnico",
-        "sinal_tecnico",
         "conviccao_tecnica",
         "risco_tecnico",
     ]
@@ -466,36 +528,33 @@ def montar_carteira():
 
     base = calcular_score_final(base)
 
-    base["rating_carteira"] = base["score_final_carteira"].apply(rating_institucional)
-    base["conviccao"] = base["score_final_carteira"].apply(classificar_conviccao)
-    base["prioridade"] = base["score_final_carteira"].apply(classificar_prioridade)
-    base["risco_carteira"] = base.apply(classificar_risco_carteira, axis=1)
-    base["decisao"] = base.apply(classificar_decisao, axis=1)
-    base["motivo_decisao"] = base.apply(gerar_motivo, axis=1)
-
-    base = base[base["score_final_carteira"] >= MIN_SCORE_CARTEIRA].copy()
-
-    # Mantém a carteira institucional enxuta e compatível com o relatório.
-    # O Top20 técnico continua sendo analisado, mas a carteira final usa apenas
-    # os 15 melhores ativos por score final e score técnico.
-    base = base.sort_values(
-        ["score_final_carteira", "score_tecnico"],
-        ascending=False,
-    ).head(MAX_ATIVOS_CARTEIRA).reset_index(drop=True)
-
-    base = calcular_allocation_score(base)
-    base = normalizar_pesos_com_limite(base)
-
-    base["parecer_portfolio"] = base.apply(gerar_parecer_portfolio, axis=1)
-
     base = base.sort_values(
         ["score_final_carteira", "score_tecnico"],
         ascending=False,
     ).reset_index(drop=True)
 
+    base = base.head(MAX_ATIVOS_CARTEIRA).reset_index(drop=True)
+
+    base["decisao"] = base.apply(classificar_decisao, axis=1)
+    base["conviccao"] = base["score_final_carteira"].apply(classificar_conviccao)
+    base["prioridade"] = base.apply(classificar_prioridade, axis=1)
+    base["rating_carteira"] = base["score_final_carteira"].apply(rating_institucional)
+    base["risco_carteira"] = base.apply(classificar_risco_carteira, axis=1)
+    base["motivo_decisao"] = base.apply(gerar_motivo, axis=1)
+
+    base = calcular_peso_inteligente(base)
+
+    # Ordena pelo peso para leitura executiva, mas preserva ranking por score.
+    base = base.sort_values(
+        ["peso_sugerido_pct", "score_final_carteira"],
+        ascending=False,
+    ).reset_index(drop=True)
+
     base.insert(0, "ranking_carteira", base.index + 1)
 
-    metricas = calcular_metricas_portfolio(base)
+    base["parecer_portfolio"] = base.apply(gerar_parecer_portfolio, axis=1)
+
+    metricas = gerar_metricas_portfolio(base)
 
     Path("output").mkdir(exist_ok=True)
 
@@ -506,14 +565,14 @@ def montar_carteira():
     )
 
     metricas.to_csv(
-        METRICS_FILE,
+        PORTFOLIO_METRICS_FILE,
         index=False,
         encoding="utf-8-sig",
     )
 
     print()
     print("=" * 70)
-    print("CARTEIRA INSTITUCIONAL V3 — TOP 15 EXPLICÁVEL")
+    print("CARTEIRA INSTITUCIONAL V4 — SETOR B3 VALIDADO")
     print("=" * 70)
 
     colunas = [
@@ -521,22 +580,24 @@ def montar_carteira():
         "ticker",
         "empresa",
         "setor",
+        "setor_fonte",
         "score_fundamental",
         "score_tecnico",
         "score_final_carteira",
         "rating_carteira",
         "conviccao",
         "prioridade",
-        "risco_carteira",
         "peso_sugerido_pct",
         "validacao_peso_ativo",
+        "conviccao_tecnica",
+        "risco_tecnico",
+        "risco_carteira",
         "sinal_tecnico",
         "decisao",
         "motivo_decisao",
     ]
 
     colunas = [c for c in colunas if c in base.columns]
-
     print(base[colunas])
 
     print("\nMÉTRICAS DO PORTFÓLIO")
@@ -546,7 +607,7 @@ def montar_carteira():
     print(OUTPUT_FILE)
 
     print("\nMétricas do portfólio salvas em:")
-    print(METRICS_FILE)
+    print(PORTFOLIO_METRICS_FILE)
 
     return base
 
