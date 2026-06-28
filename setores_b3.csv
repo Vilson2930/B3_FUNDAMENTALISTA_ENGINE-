@@ -3,11 +3,11 @@ JHSF3,Construção Civil,Incorporações,Exploração de Imóveis
 CYRE3,Construção Civil,Incorporações,Incorporações
 LAVV3,Construção Civil,Incorporações,Incorporações
 TRIS3,Construção Civil,Incorporações,Incorporações
-PETR4,Petróleo, Gás e Biocombustíveis,Petróleo, Gás e Biocombustíveis,Exploração e/ou Refino
-RECV3,Petróleo, Gás e Biocombustíveis,Petróleo, Gás e Biocombustíveis,Exploração e/ou Refino
+PETR4,"Petróleo, Gás e Biocombustíveis","Petróleo, Gás e Biocombustíveis",Exploração e/ou Refino
+RECV3,"Petróleo, Gás e Biocombustíveis","Petróleo, Gás e Biocombustíveis",Exploração e/ou Refino
 TAEE4,Utilidade Pública,Energia Elétrica,Energia Elétrica
 ISAE4,Utilidade Pública,Energia Elétrica,Energia Elétrica
-VULC3,Consumo Cíclico,Tecidos, Vestuário e Calçados,Calçados
+VULC3,Consumo Cíclico,"Tecidos, Vestuário e Calçados",Calçados
 AZZA3,Consumo Cíclico,Comércio,Vestuário
 TFCO4,Consumo Cíclico,Comércio,Vestuário
 GMAT3,Consumo Não Cíclico,Comércio e Distribuição,Alimentos
