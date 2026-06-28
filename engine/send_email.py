@@ -1,9 +1,3 @@
-# ============================================================
-# send_email.py
-# B3 FUNDAMENTALISTA ENGINE
-# Envio automático de relatório por e-mail
-# ============================================================
-
 import os
 import smtplib
 from pathlib import Path
@@ -21,26 +15,24 @@ def anexar_arquivo(msg, caminho):
         return
 
     with open(caminho, "rb") as f:
-        conteudo = f.read()
-
-    msg.add_attachment(
-        conteudo,
-        maintype="application",
-        subtype="octet-stream",
-        filename=caminho.name
-    )
+        msg.add_attachment(
+            f.read(),
+            maintype="application",
+            subtype="octet-stream",
+            filename=caminho.name
+        )
 
 
-def ler_texto(caminho, limite=4000):
+def ler_texto(caminho, limite=5000):
     caminho = Path(caminho)
 
     if not caminho.exists():
-        return "Arquivo não encontrado."
+        return "Auditoria IA não encontrada."
 
     texto = caminho.read_text(encoding="utf-8", errors="ignore")
 
     if len(texto) > limite:
-        texto = texto[:limite] + "\n\n...[texto reduzido no corpo do e-mail]"
+        texto = texto[:limite] + "\n\n...[texto reduzido]"
 
     return texto
 
@@ -55,10 +47,9 @@ def main():
     if not all([smtp_server, smtp_user, smtp_password, email_to]):
         raise Exception("Secrets de e-mail não configurados corretamente.")
 
-    auditoria = ler_texto(OUTPUT_DIR / "auditoria_ia.txt", limite=5000)
+    auditoria = ler_texto(OUTPUT_DIR / "auditoria_ia.txt")
 
     msg = EmailMessage()
-
     msg["Subject"] = "Relatório B3 Full Portfolio Pipeline"
     msg["From"] = smtp_user
     msg["To"] = email_to
@@ -84,7 +75,7 @@ Arquivos anexos:
 - carteira_institucional.csv
 - carteira_diversificada.csv
 
-Este relatório foi gerado automaticamente pelo GitHub Actions.
+Gerado automaticamente pelo GitHub Actions.
 """
 
     msg.set_content(corpo)
