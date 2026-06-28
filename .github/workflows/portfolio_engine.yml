@@ -59,6 +59,11 @@ jobs:
         run: |
           python -c "from engine.ai_audit import gerar_auditoria_ia; gerar_auditoria_ia()"
 
+      - name: Generate Institutional PDF
+        timeout-minutes: 2
+        run: |
+          python -c "from engine.pdf_report import gerar_pdf_institucional; gerar_pdf_institucional()"
+
       - name: Send Email Report
         if: success()
         env:
@@ -68,7 +73,7 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: |
-          python send_email.py
+          python engine/send_email.py
 
       - name: Verificar arquivos gerados
         if: always()
