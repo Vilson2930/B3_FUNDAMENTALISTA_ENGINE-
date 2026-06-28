@@ -1,10 +1,10 @@
-name: Run B3 Portfolio Engine
+name: Run B3 Full Portfolio Pipeline
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-portfolio:
+  run-full-pipeline:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,6 +21,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Run Fundamental Engine
+        timeout-minutes: 8
+        run: |
+          python main.py
+
+      - name: Run Technical Engine
+        timeout-minutes: 5
+        run: |
+          python -c "from engine.technical_engine import analisar_top20; analisar_top20()"
+
       - name: Run Portfolio Engine
         timeout-minutes: 2
         run: |
@@ -32,11 +42,11 @@ jobs:
           echo "Arquivos em output:"
           ls -la output || true
 
-      - name: Upload Portfolio Report
+      - name: Upload Full Portfolio Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: b3-portfolio-report
+          name: b3-full-portfolio-report
           path: output/**
           if-no-files-found: warn
           retention-days: 30
