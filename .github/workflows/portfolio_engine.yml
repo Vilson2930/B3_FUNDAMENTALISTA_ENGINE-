@@ -73,7 +73,7 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: |
-          python engine/send_email.py
+          python send_email.py
 
       - name: Verificar arquivos gerados
         if: always()
