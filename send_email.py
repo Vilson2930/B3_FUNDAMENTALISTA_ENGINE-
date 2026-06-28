@@ -45,25 +45,27 @@ def main():
         )
 
     msg = EmailMessage()
-    msg["Subject"] = "Relatório Institucional B3 Fundamentalista Engine"
+    msg["Subject"] = "B3 Fundamentalista Engine — Relatório Institucional"
     msg["From"] = smtp_user
     msg["To"] = email_to
 
     corpo = """
 B3 FUNDAMENTALISTA ENGINE
 
-Execução automática concluída com sucesso.
+Relatório institucional gerado com sucesso.
 
-Segue em anexo o relatório institucional em PDF, contendo:
+O PDF em anexo contém:
 
-- Capa
 - Resumo executivo
+- Dashboard da carteira
 - Carteira sugerida
-- Gráficos
-- Auditoria da IA
-- Conclusão
+- Exposição por setor
+- Pesos por ativo
+- Auditoria institucional com IA
+- Metodologia
+- Disclaimer
 
-Gerado automaticamente pelo GitHub Actions.
+Este e-mail foi enviado automaticamente pelo GitHub Actions.
 """
 
     msg.set_content(corpo)
