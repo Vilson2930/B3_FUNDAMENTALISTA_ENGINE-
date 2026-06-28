@@ -1,11 +1,12 @@
 # ============================================================
 # ai_audit.py
 # B3 FUNDAMENTALISTA ENGINE
-# Auditoria Institucional com IA — Versão 2.0 CIO
+# AI Institutional Audit — Research Committee Report V3
 # ============================================================
 
 import os
 from pathlib import Path
+from datetime import datetime
 
 import pandas as pd
 from openai import OpenAI
@@ -16,10 +17,12 @@ CARTEIRA_FILE = OUTPUT_DIR / "carteira_institucional.csv"
 DIVERSIFICADA_FILE = OUTPUT_DIR / "carteira_diversificada.csv"
 AUDITORIA_FILE = OUTPUT_DIR / "auditoria_ia.txt"
 
+# Limites de referência usados apenas para auditoria qualitativa.
+# Não alteram a carteira, só dão contexto para a IA interpretar os números.
+LIMITE_SETOR_REFERENCIA = 25.0
+LIMITE_TOP5_REFERENCIA = 45.0
+LIMITE_ATIVO_REFERENCIA = 10.0
 
-# ============================================================
-# LEITURA DE DADOS
-# ============================================================
 
 def carregar_csv(caminho):
     caminho = Path(caminho)
@@ -37,134 +40,132 @@ def carregar_csv(caminho):
     return df
 
 
-def numero_seguro(valor, default=0.0):
+def fmt_pct(valor):
     try:
-        return float(valor)
+        return f"{float(valor):.2f}%"
     except Exception:
-        return default
+        return "N/A"
 
 
-# ============================================================
-# MÉTRICAS OBJETIVAS DA CARTEIRA
-# ============================================================
+def fmt_num(valor):
+    try:
+        return f"{float(valor):.2f}"
+    except Exception:
+        return "N/A"
+
+
+def serie_numerica(df, coluna):
+    if coluna not in df.columns:
+        return pd.Series(dtype=float)
+
+    return pd.to_numeric(df[coluna], errors="coerce")
+
 
 def calcular_metricas(df):
     if df.empty:
         return {
             "qtd_ativos": 0,
-            "peso_total": 0.0,
-            "peso_top5": 0.0,
-            "qtd_setores": 0,
+            "peso_total": 0,
+            "peso_top5": 0,
             "maior_setor": "N/A",
-            "peso_maior_setor": 0.0,
-            "score_medio": 0.0,
-            "score_max": 0.0,
-            "score_min": 0.0,
-            "ativo_lider": "N/A",
+            "peso_maior_setor": 0,
+            "qtd_setores": 0,
+            "score_medio": 0,
+            "score_max": 0,
+            "score_min": 0,
+            "maior_ativo": "N/A",
+            "maior_peso_ativo": 0,
             "decisoes": {},
             "conviccoes": {},
+            "ratings": {},
+            "status_setor": "N/A",
+            "status_top5": "N/A",
+            "status_ativo": "N/A",
         }
 
-    metricas = {}
-    metricas["qtd_ativos"] = len(df)
+    peso = serie_numerica(df, "peso_sugerido_pct")
+    score = serie_numerica(df, "score_final_carteira")
 
-    if "peso_sugerido_pct" in df.columns:
-        pesos = pd.to_numeric(df["peso_sugerido_pct"], errors="coerce").fillna(0)
-        metricas["peso_total"] = float(pesos.sum())
-        metricas["peso_top5"] = float(pesos.head(5).sum())
-    else:
-        metricas["peso_total"] = 0.0
-        metricas["peso_top5"] = 0.0
+    qtd_ativos = len(df)
+    peso_total = peso.sum() if not peso.empty else 0
+    peso_top5 = peso.head(5).sum() if not peso.empty else 0
 
-    if "setor" in df.columns:
-        metricas["qtd_setores"] = int(df["setor"].nunique())
+    maior_ativo = "N/A"
+    maior_peso_ativo = 0
 
-        if "peso_sugerido_pct" in df.columns:
-            setor = (
-                df.assign(
-                    peso_sugerido_pct=pd.to_numeric(
-                        df["peso_sugerido_pct"],
-                        errors="coerce"
-                    ).fillna(0)
-                )
-                .groupby("setor")["peso_sugerido_pct"]
-                .sum()
-                .sort_values(ascending=False)
-            )
+    if "ticker" in df.columns and not peso.empty and peso.notna().any():
+        idx_maior = peso.idxmax()
+        maior_ativo = str(df.loc[idx_maior, "ticker"])
+        maior_peso_ativo = float(peso.loc[idx_maior])
 
-            if not setor.empty:
-                metricas["maior_setor"] = str(setor.index[0])
-                metricas["peso_maior_setor"] = float(setor.iloc[0])
-            else:
-                metricas["maior_setor"] = "N/A"
-                metricas["peso_maior_setor"] = 0.0
-        else:
-            metricas["maior_setor"] = "N/A"
-            metricas["peso_maior_setor"] = 0.0
-    else:
-        metricas["qtd_setores"] = 0
-        metricas["maior_setor"] = "N/A"
-        metricas["peso_maior_setor"] = 0.0
+    maior_setor = "N/A"
+    peso_maior_setor = 0
+    qtd_setores = 0
 
-    if "score_final_carteira" in df.columns:
-        scores = pd.to_numeric(df["score_final_carteira"], errors="coerce").fillna(0)
-        metricas["score_medio"] = float(scores.mean())
-        metricas["score_max"] = float(scores.max())
-        metricas["score_min"] = float(scores.min())
-    else:
-        metricas["score_medio"] = 0.0
-        metricas["score_max"] = 0.0
-        metricas["score_min"] = 0.0
+    if "setor" in df.columns and "peso_sugerido_pct" in df.columns:
+        setores = (
+            df.assign(peso_tmp=peso)
+            .groupby("setor")["peso_tmp"]
+            .sum()
+            .sort_values(ascending=False)
+        )
 
-    if "ticker" in df.columns and not df.empty:
-        metricas["ativo_lider"] = str(df.iloc[0]["ticker"])
-    else:
-        metricas["ativo_lider"] = "N/A"
+        qtd_setores = df["setor"].nunique()
 
+        if not setores.empty:
+            maior_setor = str(setores.index[0])
+            peso_maior_setor = float(setores.iloc[0])
+
+    decisoes = {}
     if "decisao" in df.columns:
-        metricas["decisoes"] = df["decisao"].value_counts().to_dict()
-    else:
-        metricas["decisoes"] = {}
+        decisoes = df["decisao"].fillna("N/A").value_counts().to_dict()
 
+    conviccoes = {}
     if "conviccao" in df.columns:
-        metricas["conviccoes"] = df["conviccao"].value_counts().to_dict()
-    else:
-        metricas["conviccoes"] = {}
+        conviccoes = df["conviccao"].fillna("N/A").value_counts().to_dict()
 
-    return metricas
+    ratings = {}
+    if "rating_carteira" in df.columns:
+        ratings = df["rating_carteira"].fillna("N/A").value_counts().to_dict()
 
+    status_setor = (
+        "ACEITÁVEL"
+        if peso_maior_setor <= LIMITE_SETOR_REFERENCIA
+        else "ACIMA DO LIMITE"
+    )
 
-def formatar_metricas(metricas):
-    linhas = [
-        f"Ativos na carteira: {metricas['qtd_ativos']}",
-        f"Peso total: {metricas['peso_total']:.2f}%",
-        f"Peso Top 5: {metricas['peso_top5']:.2f}%",
-        f"Quantidade de setores: {metricas['qtd_setores']}",
-        f"Maior setor: {metricas['maior_setor']} ({metricas['peso_maior_setor']:.2f}%)",
-        f"Score médio: {metricas['score_medio']:.2f}",
-        f"Maior score: {metricas['score_max']:.2f}",
-        f"Menor score: {metricas['score_min']:.2f}",
-        f"Ativo líder: {metricas['ativo_lider']}",
-    ]
+    status_top5 = (
+        "ACEITÁVEL"
+        if peso_top5 <= LIMITE_TOP5_REFERENCIA
+        else "CONCENTRADO"
+    )
 
-    if metricas.get("decisoes"):
-        linhas.append("")
-        linhas.append("Distribuição por decisão:")
-        for chave, valor in metricas["decisoes"].items():
-            linhas.append(f"- {chave}: {valor}")
+    status_ativo = (
+        "ACEITÁVEL"
+        if maior_peso_ativo <= LIMITE_ATIVO_REFERENCIA
+        else "ACIMA DO LIMITE"
+    )
 
-    if metricas.get("conviccoes"):
-        linhas.append("")
-        linhas.append("Distribuição por convicção:")
-        for chave, valor in metricas["conviccoes"].items():
-            linhas.append(f"- {chave}: {valor}")
+    return {
+        "qtd_ativos": qtd_ativos,
+        "peso_total": peso_total,
+        "peso_top5": peso_top5,
+        "maior_setor": maior_setor,
+        "peso_maior_setor": peso_maior_setor,
+        "qtd_setores": qtd_setores,
+        "score_medio": score.mean() if not score.empty else 0,
+        "score_max": score.max() if not score.empty else 0,
+        "score_min": score.min() if not score.empty else 0,
+        "maior_ativo": maior_ativo,
+        "maior_peso_ativo": maior_peso_ativo,
+        "decisoes": decisoes,
+        "conviccoes": conviccoes,
+        "ratings": ratings,
+        "status_setor": status_setor,
+        "status_top5": status_top5,
+        "status_ativo": status_ativo,
+    }
 
-    return "\n".join(linhas)
-
-
-# ============================================================
-# RESUMO TABULAR PARA A IA
-# ============================================================
 
 def preparar_resumo_tabela(df, limite=15):
     if df.empty:
@@ -173,7 +174,6 @@ def preparar_resumo_tabela(df, limite=15):
     colunas = [
         "ranking_carteira",
         "ticker",
-        "empresa",
         "setor",
         "score_fundamental",
         "score_tecnico",
@@ -189,6 +189,9 @@ def preparar_resumo_tabela(df, limite=15):
 
     colunas = [c for c in colunas if c in df.columns]
 
+    if not colunas:
+        return df.head(limite).to_string(index=False)
+
     resumo = df[colunas].head(limite).copy()
 
     for col in ["score_fundamental", "score_tecnico", "score_final_carteira", "peso_sugerido_pct"]:
@@ -198,9 +201,56 @@ def preparar_resumo_tabela(df, limite=15):
     return resumo.to_string(index=False)
 
 
-# ============================================================
-# PROMPT INSTITUCIONAL
-# ============================================================
+def formatar_dicionario(nome, dados):
+    linhas = [nome]
+
+    if not dados:
+        linhas.append("- N/A")
+        return "\n".join(linhas)
+
+    for chave, valor in dados.items():
+        linhas.append(f"- {chave}: {valor}")
+
+    return "\n".join(linhas)
+
+
+def resumo_metricas(metricas):
+    linhas = []
+
+    linhas.append(f"Ativos na carteira: {metricas['qtd_ativos']}")
+    linhas.append(f"Peso total: {fmt_pct(metricas['peso_total'])}")
+    linhas.append(f"Score médio: {fmt_num(metricas['score_medio'])}")
+    linhas.append(f"Maior score: {fmt_num(metricas['score_max'])}")
+    linhas.append(f"Menor score: {fmt_num(metricas['score_min'])}")
+    linhas.append("")
+
+    linhas.append("Concentração por ativo:")
+    linhas.append(f"- Maior ativo: {metricas['maior_ativo']} ({fmt_pct(metricas['maior_peso_ativo'])})")
+    linhas.append(f"- Limite de referência por ativo: {fmt_pct(LIMITE_ATIVO_REFERENCIA)}")
+    linhas.append(f"- Status: {metricas['status_ativo']}")
+    linhas.append("")
+
+    linhas.append("Concentração Top 5:")
+    linhas.append(f"- Peso Top 5: {fmt_pct(metricas['peso_top5'])}")
+    linhas.append(f"- Limite de referência Top 5: {fmt_pct(LIMITE_TOP5_REFERENCIA)}")
+    linhas.append(f"- Status: {metricas['status_top5']}")
+    linhas.append("")
+
+    linhas.append("Concentração setorial:")
+    linhas.append(f"- Quantidade de setores: {metricas['qtd_setores']}")
+    linhas.append(f"- Maior setor: {metricas['maior_setor']} ({fmt_pct(metricas['peso_maior_setor'])})")
+    linhas.append(f"- Limite de referência por setor: {fmt_pct(LIMITE_SETOR_REFERENCIA)}")
+    linhas.append(f"- Status: {metricas['status_setor']}")
+    linhas.append("")
+
+    linhas.append(formatar_dicionario("Distribuição por decisão:", metricas["decisoes"]))
+    linhas.append("")
+    linhas.append(formatar_dicionario("Distribuição por convicção:", metricas["conviccoes"]))
+    linhas.append("")
+    linhas.append(formatar_dicionario("Distribuição por rating:", metricas["ratings"]))
+
+    return "\n".join(linhas)
+
 
 def gerar_prompt(carteira, diversificada):
     base = diversificada if not diversificada.empty else carteira
@@ -209,161 +259,83 @@ def gerar_prompt(carteira, diversificada):
     prompt = f"""
 Você é o Chief Investment Officer (CIO) de uma gestora quantitativa especializada em ações brasileiras.
 
-Sua função é auditar a carteira produzida pelo B3 Fundamentalista Engine.
+Sua função é auditar a carteira produzida pelo B3 Fundamentalista Engine como se estivesse preparando um parecer para um Comitê de Investimentos.
 
 IMPORTANTE:
 - Não faça recomendação absoluta de compra ou venda.
 - Não prometa retorno.
-- Não invente dados.
-- Use apenas as métricas e tabelas fornecidas.
-- Escreva como um parecer para Comitê de Investimentos.
-- Seja objetivo, conservador e institucional.
-- O texto será inserido em um PDF, portanto deve ser curto, claro e organizado.
+- Não invente informações.
+- Não estime rentabilidade futura.
+- Use apenas os dados enviados.
+- Seja objetivo, técnico e conservador.
+- O texto será inserido em um PDF institucional, portanto deve ser enxuto e bem estruturado.
 
-METODOLOGIA DO MOTOR:
-- Fundamentalista: seleciona empresas por qualidade, valuation, crescimento, rentabilidade, alavancagem e moat.
-- Técnico: avalia momento de entrada.
-- Portfolio: combina 70% fundamentos e 30% técnico.
-- Diversificação: controla concentração setorial.
-- IA: audita coerência, riscos observáveis e governança do processo.
+FILOSOFIA DO MOTOR:
+- Fundamentalista: seleciona empresas com base em qualidade, valuation, crescimento, rentabilidade, alavancagem e moat.
+- Técnico: avalia o momento de entrada.
+- Portfolio: combina 70% fundamentos e 30% análise técnica.
+- Diversificação: controla concentração setorial e reduz dependência de poucos setores.
+- IA: atua como auditoria independente do processo, sem alterar a carteira.
 
-MÉTRICAS CONSOLIDADAS DA CARTEIRA:
-{formatar_metricas(metricas)}
+LIMITES DE REFERÊNCIA DA AUDITORIA:
+- Peso máximo de referência por ativo: {fmt_pct(LIMITE_ATIVO_REFERENCIA)}
+- Peso máximo de referência por setor: {fmt_pct(LIMITE_SETOR_REFERENCIA)}
+- Peso máximo de referência do Top 5: {fmt_pct(LIMITE_TOP5_REFERENCIA)}
 
-CARTEIRA FINAL:
-{preparar_resumo_tabela(base, limite=15)}
+MÉTRICAS CONSOLIDADAS:
+{resumo_metricas(metricas)}
 
-Gere a auditoria exatamente no formato abaixo.
-Não use markdown complexo. Use títulos simples e bullets simples.
+CARTEIRA AUDITADA:
+{preparar_resumo_tabela(base)}
+
+GERE O RELATÓRIO EXATAMENTE NESTA ESTRUTURA:
 
 NOTA GERAL: X.X/10
-Explique a nota em no máximo 4 linhas.
+Explique a nota em até quatro linhas. A nota não pode parecer arbitrária: relacione fundamentos, técnico, diversificação e concentração.
 
-DASHBOARD EXECUTIVO:
-Fundamentos: X/10
-Técnico: X/10
-Diversificação: X/10
-Governança: X/10
-Consistência: X/10
+COMPOSIÇÃO DA NOTA:
+Fundamentos: X/10 — justificativa curta
+Técnico: X/10 — justificativa curta
+Diversificação: X/10 — justificativa curta
+Governança: X/10 — justificativa curta
+Consistência: X/10 — justificativa curta
 
 DIAGNÓSTICO EXECUTIVO:
-Um único parágrafo de no máximo 5 linhas.
+Um único parágrafo de até cinco linhas, interpretando a carteira sem repetir mecanicamente os números.
 
 PONTOS FORTES:
-- até 5 bullets objetivos
+- Até cinco bullets objetivos.
 
 PONTOS DE ATENÇÃO:
-- até 5 bullets objetivos
+- Até cinco bullets objetivos.
 
-MAIORES RISCOS OBSERVADOS:
-- liste apenas riscos suportados pelos dados
+RISCOS PRIORIZADOS:
+- ALTO: risco principal, se houver. Explique em uma linha.
+- MÉDIO: risco relevante, se houver. Explique em uma linha.
+- BAIXO: risco monitorável, se houver. Explique em uma linha.
+
+INTERPRETAÇÃO DA CONCENTRAÇÃO:
+Explique se o maior setor, o maior ativo e o Top 5 estão dentro ou fora dos limites de referência informados. Não apenas repita os números; interprete o significado.
 
 ATIVOS PRIORITÁRIOS:
-- até 5 tickers com motivo em uma linha
+- Liste até cinco ativos com motivo em uma linha cada.
 
 ATIVOS EM OBSERVAÇÃO:
-- até 5 tickers com motivo em uma linha
+- Liste até cinco ativos com motivo em uma linha cada.
 
 CHECKLIST INSTITUCIONAL:
-Qualidade Fundamentalista: APROVADO / ATENÇÃO / REPROVADO
-Timing Técnico: APROVADO / ATENÇÃO / REPROVADO
-Diversificação: APROVADO / ATENÇÃO / REPROVADO
-Governança: APROVADO / ATENÇÃO / REPROVADO
-Controle de Risco: APROVADO / ATENÇÃO / REPROVADO
+Qualidade Fundamentalista: APROVADO/ATENÇÃO — justificativa curta
+Timing Técnico: APROVADO/ATENÇÃO — justificativa curta
+Diversificação: APROVADO/ATENÇÃO — justificativa curta
+Governança: APROVADO/ATENÇÃO — justificativa curta
+Controle de Risco: APROVADO/ATENÇÃO — justificativa curta
 
 PARECER FINAL:
-Um parágrafo curto, objetivo e institucional.
+Um parágrafo curto, objetivo e institucional. Deve explicar a principal mensagem da auditoria e a ação de monitoramento mais importante, sem recomendar compra ou venda.
 """
 
     return prompt
 
-
-# ============================================================
-# CHAMADA OPENAI
-# ============================================================
-
-def chamar_openai(prompt, api_key):
-    client = OpenAI(api_key=api_key)
-
-    resposta = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Você é um CIO e auditor institucional de carteiras quantitativas. "
-                    "Avalie processo, risco, coerência, diversificação e governança. "
-                    "Nunca prometa retorno e nunca invente dados."
-                ),
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-        temperature=0.10,
-    )
-
-    return resposta.choices[0].message.content.strip()
-
-
-# ============================================================
-# FALLBACK SEM IA
-# ============================================================
-
-def gerar_auditoria_fallback(df):
-    metricas = calcular_metricas(df)
-
-    texto = f"""
-NOTA GERAL: 7.0/10
-Auditoria gerada por fallback local porque a IA não foi executada. A carteira possui {metricas['qtd_ativos']} ativos, {metricas['qtd_setores']} setores e score médio de {metricas['score_medio']:.2f}.
-
-DASHBOARD EXECUTIVO:
-Fundamentos: 7/10
-Técnico: 6/10
-Diversificação: 7/10
-Governança: 8/10
-Consistência: 7/10
-
-DIAGNÓSTICO EXECUTIVO:
-A carteira apresenta estrutura quantitativa organizada, com pesos distribuídos e controle inicial de concentração. A análise completa da IA não foi realizada, portanto este parecer deve ser tratado como diagnóstico operacional provisório.
-
-PONTOS FORTES:
-- Processo quantitativo estruturado.
-- Carteira com pesos distribuídos.
-- Existência de controle por setor.
-
-PONTOS DE ATENÇÃO:
-- Auditoria IA não executada.
-- Necessária revisão da chave OPENAI_API_KEY.
-- Validar geração do arquivo auditoria_ia.txt.
-
-MAIORES RISCOS OBSERVADOS:
-- Risco operacional de ausência de auditoria IA.
-
-ATIVOS PRIORITÁRIOS:
-- {metricas['ativo_lider']}: ativo líder pelo ranking atual.
-
-ATIVOS EM OBSERVAÇÃO:
-- Verificar ativos com decisão NÃO PRIORIZAR AGORA.
-
-CHECKLIST INSTITUCIONAL:
-Qualidade Fundamentalista: ATENÇÃO
-Timing Técnico: ATENÇÃO
-Diversificação: ATENÇÃO
-Governança: APROVADO
-Controle de Risco: ATENÇÃO
-
-PARECER FINAL:
-O processo está operacional, mas a auditoria institucional completa depende da execução correta da IA. Recomenda-se validar credenciais e revisar o relatório gerado.
-""".strip()
-
-    return texto
-
-
-# ============================================================
-# FUNÇÃO PRINCIPAL
-# ============================================================
 
 def gerar_auditoria_ia():
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -377,27 +349,37 @@ def gerar_auditoria_ia():
         print(texto)
         return texto
 
-    base = diversificada if not diversificada.empty else carteira
-
     api_key = os.getenv("OPENAI_API_KEY")
 
     if not api_key:
-        texto = gerar_auditoria_fallback(base)
+        texto = "AUDITORIA IA NÃO GERADA: OPENAI_API_KEY não configurada."
         AUDITORIA_FILE.write_text(texto, encoding="utf-8")
-        print("OPENAI_API_KEY não configurada. Fallback local gerado.")
         print(texto)
         return texto
 
-    try:
-        prompt = gerar_prompt(carteira, diversificada)
-        texto = chamar_openai(prompt, api_key)
-    except Exception as erro:
-        texto = gerar_auditoria_fallback(base)
-        texto = (
-            "AVISO: auditoria IA não executada por erro na chamada OpenAI. "
-            f"Erro: {erro}\n\n" + texto
-        )
+    client = OpenAI(api_key=api_key)
+    prompt = gerar_prompt(carteira, diversificada)
 
+    resposta = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Você é o CIO de uma gestora quantitativa. "
+                    "Sua função é auditar carteiras com linguagem técnica, conservadora e objetiva. "
+                    "Nunca prometa retorno e nunca invente dados."
+                ),
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        temperature=0.12,
+    )
+
+    texto = resposta.choices[0].message.content.strip()
     AUDITORIA_FILE.write_text(texto, encoding="utf-8")
 
     print("=" * 70)
