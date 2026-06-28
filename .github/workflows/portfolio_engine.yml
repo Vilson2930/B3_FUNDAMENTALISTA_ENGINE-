@@ -3,6 +3,9 @@ name: Run B3 Full Portfolio Pipeline
 on:
   workflow_dispatch:
 
+  schedule:
+    - cron: "0 10 * * 1"
+
 jobs:
   run-full-pipeline:
     runs-on: ubuntu-latest
@@ -52,9 +55,6 @@ jobs:
       - name: Verificar arquivos gerados
         if: always()
         run: |
-          echo "Diretório atual:"
-          pwd
-          echo ""
           echo "Arquivos em output:"
           ls -la output || true
 
