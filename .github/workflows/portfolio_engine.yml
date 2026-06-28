@@ -52,6 +52,24 @@ jobs:
         run: |
           python -c "from engine.diversification import analisar_diversificacao; analisar_diversificacao()"
 
+      - name: Run AI Audit
+        timeout-minutes: 3
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python -c "from engine.ai_audit import gerar_auditoria_ia; gerar_auditoria_ia()"
+
+      - name: Send Email Report
+        if: success()
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: |
+          python send_email.py
+
       - name: Verificar arquivos gerados
         if: always()
         run: |
