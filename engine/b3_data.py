@@ -1,52 +1,35 @@
 # ============================================================
 # b3_data.py
 # B3 FUNDAMENTALISTA ENGINE
-# Coleta de ativos da B3 via BRAPI + Setores corrigidos
+# Coleta B3 via BRAPI + Setor oficial via data/setores_b3.csv
 # ============================================================
 
+from pathlib import Path
 import requests
 import pandas as pd
 
 
 URL_BRAPI = "https://brapi.dev/api/quote/list"
 
-
-SETOR_MANUAL_B3 = {
-    "JHSF3": "Construção Civil",
-    "TRIS3": "Construção Civil",
-    "PETR4": "Petróleo, Gás e Biocombustíveis",
-    "RECV3": "Petróleo, Gás e Biocombustíveis",
-    "TAEE4": "Utilidade Pública",
-    "ISAE4": "Utilidade Pública",
-    "POMO4": "Bens Industriais",
-    "VULC3": "Consumo Cíclico",
-    "AZZA3": "Consumo Cíclico",
-    "TFCO4": "Consumo Cíclico",
-    "GMAT3": "Consumo Não Cíclico",
-    "SEER3": "Educação",
-    "CSED3": "Educação",
-    "VTRU3": "Educação",
-    "BLAU3": "Saúde",
-    "FIQE3": "Comunicações",
-    "RANI3": "Materiais Básicos",
-    "TGMA3": "Bens Industriais",
-    "WIZC3": "Financeiro",
-    "CSUD3": "Tecnologia",
-}
+SETOR_FILE = Path("data/setores_b3.csv")
+OUTPUT_AUDITORIA_SETOR = Path("output/auditoria_setores.csv")
 
 
-def corrigir_setor(row):
-    ticker = str(row.get("ticker", "")).upper().strip()
+def carregar_setores_b3():
+    if not SETOR_FILE.exists():
+        print("Arquivo data/setores_b3.csv não encontrado. Usando setor da BRAPI como fallback.")
+        return pd.DataFrame()
 
-    if ticker in SETOR_MANUAL_B3:
-        return SETOR_MANUAL_B3[ticker]
+    setores = pd.read_csv(SETOR_FILE, encoding="utf-8-sig")
+    setores.columns = [str(c).strip() for c in setores.columns]
 
-    setor = row.get("setor", "")
+    if "ticker" not in setores.columns:
+        print("data/setores_b3.csv sem coluna ticker. Ignorando.")
+        return pd.DataFrame()
 
-    if pd.isna(setor) or str(setor).strip() == "":
-        return "Não Classificado"
+    setores["ticker"] = setores["ticker"].astype(str).str.upper().str.strip()
 
-    return str(setor).strip()
+    return setores
 
 
 def carregar_empresas_b3():
@@ -68,7 +51,6 @@ def carregar_empresas_b3():
             "ticker": ativo.get("stock"),
             "empresa": ativo.get("name"),
             "setor_original_brapi": ativo.get("sector"),
-            "setor": ativo.get("sector"),
             "market_cap": ativo.get("market_cap"),
             "volume": ativo.get("volume"),
             "tipo": ativo.get("type"),
@@ -88,23 +70,63 @@ def carregar_empresas_b3():
     df["market_cap"] = pd.to_numeric(df["market_cap"], errors="coerce")
     df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
 
-    df = df[df["ticker"].str.len() <= 6]
+    # Somente tickers comuns da B3
+    df = df[df["ticker"].str.len() <= 6].copy()
 
-    df["setor"] = df.apply(corrigir_setor, axis=1)
+    setores_b3 = carregar_setores_b3()
 
-    df["setor_corrigido_manual"] = df["ticker"].apply(
-        lambda x: "SIM" if x in SETOR_MANUAL_B3 else "NÃO"
+    if not setores_b3.empty:
+        colunas_setor = [
+            c for c in [
+                "ticker",
+                "setor_b3",
+                "subsetor_b3",
+                "segmento_b3"
+            ]
+            if c in setores_b3.columns
+        ]
+
+        df = df.merge(
+            setores_b3[colunas_setor],
+            on="ticker",
+            how="left"
+        )
+
+        df["setor"] = df["setor_b3"].fillna(df["setor_original_brapi"])
+        df["setor_fonte"] = df["setor_b3"].apply(
+            lambda x: "B3_OFICIAL" if pd.notna(x) and str(x).strip() else "BRAPI_FALLBACK"
+        )
+
+    else:
+        df["setor"] = df["setor_original_brapi"]
+        df["subsetor_b3"] = ""
+        df["segmento_b3"] = ""
+        df["setor_fonte"] = "BRAPI_FALLBACK"
+
+    df["setor"] = df["setor"].fillna("Não Classificado")
+
+    Path("output").mkdir(exist_ok=True)
+
+    auditoria = df[[
+        "ticker",
+        "empresa",
+        "setor_original_brapi",
+        "setor",
+        "setor_fonte",
+        "subsetor_b3",
+        "segmento_b3",
+    ]].copy()
+
+    auditoria.to_csv(
+        OUTPUT_AUDITORIA_SETOR,
+        index=False,
+        encoding="utf-8-sig"
     )
 
     print(f"Ativos encontrados: {len(df)}")
-
     print()
-    print("AUDITORIA DE SETORES MANUAIS:")
-    print(
-        df[df["setor_corrigido_manual"] == "SIM"][
-            ["ticker", "empresa", "setor_original_brapi", "setor"]
-        ].head(50)
-    )
+    print("AUDITORIA DE SETORES SALVA EM:")
+    print(OUTPUT_AUDITORIA_SETOR)
 
     return df.reset_index(drop=True)
 
