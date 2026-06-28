@@ -11,6 +11,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Restore CVM Cache
+        uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: cvm-dfp-cache-2025
+          restore-keys: |
+            cvm-dfp-cache-
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -22,7 +30,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Fundamental Engine
-        timeout-minutes: 8
+        timeout-minutes: 5
         run: |
           python main.py
 
@@ -39,6 +47,9 @@ jobs:
       - name: Verificar arquivos gerados
         if: always()
         run: |
+          echo "Diretório atual:"
+          pwd
+          echo ""
           echo "Arquivos em output:"
           ls -la output || true
 
