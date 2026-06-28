@@ -1,7 +1,7 @@
 # ============================================================
 # cvm_data.py
 # B3 FUNDAMENTALISTA ENGINE
-# CVM com download + cache local inteligente
+# CVM com cache local institucional
 # ============================================================
 
 import io
@@ -12,18 +12,11 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-# ============================================================
-# CONFIG
-# ============================================================
 
 ANO_DFP = 2025
 CACHE_DIR = Path("data/cache")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-
-# ============================================================
-# DOWNLOAD CVM COM CACHE
-# ============================================================
 
 def baixar_zip_cvm(ano=ANO_DFP):
     url = (
@@ -34,21 +27,30 @@ def baixar_zip_cvm(ano=ANO_DFP):
 
     arquivo_cache = CACHE_DIR / f"dfp_cia_aberta_{ano}.zip"
 
-    print("=" * 70)
-    print("DOWNLOAD DFP CVM")
-    print("=" * 70)
-    print("URL:", url)
-    print("Cache:", arquivo_cache)
+    print("=" * 70, flush=True)
+    print("CVM CACHE ENGINE", flush=True)
+    print("=" * 70, flush=True)
+    print("URL:", url, flush=True)
+    print("Cache:", arquivo_cache, flush=True)
+
+    # Regra institucional:
+    # Se existe cache, usa o cache primeiro.
+    # Isso evita travar o GitHub Actions quando a CVM está lenta.
+    if arquivo_cache.exists() and arquivo_cache.stat().st_size > 0:
+        print("Cache CVM encontrado. Usando cache local.", flush=True)
+        return zipfile.ZipFile(arquivo_cache)
+
+    print("Cache CVM não encontrado. Baixando da CVM...", flush=True)
 
     ultima_falha = None
 
-    for tentativa in range(1, 6):
+    for tentativa in range(1, 4):
         try:
-            print(f"Tentativa {tentativa}/5...")
+            print(f"Tentativa {tentativa}/3...", flush=True)
 
             response = requests.get(
                 url,
-                timeout=120,
+                timeout=30,
                 headers={
                     "User-Agent": "Mozilla/5.0 B3FundamentalistaEngine"
                 }
@@ -58,32 +60,22 @@ def baixar_zip_cvm(ano=ANO_DFP):
 
             arquivo_cache.write_bytes(response.content)
 
-            print("Download concluído e cache atualizado.")
+            print("Download concluído e cache atualizado.", flush=True)
 
-            return zipfile.ZipFile(
-                io.BytesIO(response.content)
-            )
+            return zipfile.ZipFile(io.BytesIO(response.content))
 
         except Exception as e:
             ultima_falha = e
-            print(f"Falha na tentativa {tentativa}: {e}")
+            print(f"Falha na tentativa {tentativa}: {e}", flush=True)
 
-            if tentativa < 5:
-                print("Aguardando 20 segundos para nova tentativa...")
-                time.sleep(20)
-
-    if arquivo_cache.exists():
-        print("CVM indisponível. Usando último cache válido.")
-        return zipfile.ZipFile(arquivo_cache)
+            if tentativa < 3:
+                print("Aguardando 5 segundos para nova tentativa...", flush=True)
+                time.sleep(5)
 
     raise Exception(
         f"Falha ao baixar dados da CVM e cache inexistente: {ultima_falha}"
     )
 
-
-# ============================================================
-# LEITURA CSV
-# ============================================================
 
 def ler_csv(zip_file, nome_arquivo):
     with zip_file.open(nome_arquivo) as f:
@@ -96,10 +88,6 @@ def ler_csv(zip_file, nome_arquivo):
 
     return df
 
-
-# ============================================================
-# CARGA PRINCIPAL
-# ============================================================
 
 def carregar_dados_cvm(ano=ANO_DFP):
     zip_file = baixar_zip_cvm(ano)
