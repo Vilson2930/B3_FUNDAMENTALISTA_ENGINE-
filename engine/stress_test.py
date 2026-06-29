@@ -68,8 +68,8 @@ def classificar_risco(perda_pct):
     return "RISCO BAIXO"
 
 
-def classificar_perfil_stress(pior_perda):
-    perda = abs(float(pior_perda))
+def classificar_perfil_stress(perda_pct):
+    perda = abs(float(perda_pct))
 
     if perda >= 50:
         return "CARTEIRA AGRESSIVA EM STRESS"
@@ -77,6 +77,7 @@ def classificar_perfil_stress(pior_perda):
         return "CARTEIRA MODERADAMENTE AGRESSIVA"
     if perda >= 30:
         return "CARTEIRA BALANCEADA COM RISCO CÍCLICO"
+
     return "CARTEIRA MAIS DEFENSIVA"
 
 
@@ -106,6 +107,7 @@ def calcular_hhi(df):
 def calcular_numero_efetivo_ativos(hhi):
     if hhi <= 0:
         return 0
+
     return 1 / hhi
 
 
@@ -182,23 +184,35 @@ def executar_stress_test():
             "cenario": cenario.replace("_pct", ""),
             "queda_estimada_carteira_pct": impacto_total,
             "risco_stress": classificar_risco(impacto_total),
+            "perfil_stress": classificar_perfil_stress(impacto_total),
             "maior_contribuidor_risco": df.loc[idx_maior_risco, "ticker"]
             if "ticker" in df.columns else "N/A",
             "maior_setor_risco": maior_setor_risco,
             "impacto_maior_setor_pct": impacto_maior_setor,
             "hhi_carteira": hhi,
             "numero_efetivo_ativos": numero_efetivo,
-            "peso_top5_pct": float(df.sort_values("peso_sugerido_pct", ascending=False).head(5)["peso_sugerido_pct"].sum()),
+            "peso_top5_pct": float(
+                df.sort_values("peso_sugerido_pct", ascending=False)
+                .head(5)["peso_sugerido_pct"]
+                .sum()
+            ),
             "maior_peso_ativo_pct": float(df["peso_sugerido_pct"].max()),
-            "perfil_stress": classificar_perfil_stress(impacto_total),
         })
 
     resumo_df = pd.DataFrame(resumo)
 
     pior_cenario = resumo_df.sort_values("queda_estimada_carteira_pct").iloc[0]
 
-    resumo_df["pior_cenario_da_carteira"] = pior_cenario["cenario"]
-    resumo_df["queda_pior_cenario_pct"] = pior_cenario["queda_estimada_carteira_pct"]
+    resumo_geral = pd.DataFrame([{
+        "pior_cenario_da_carteira": pior_cenario["cenario"],
+        "queda_pior_cenario_pct": pior_cenario["queda_estimada_carteira_pct"],
+        "risco_pior_cenario": pior_cenario["risco_stress"],
+        "perfil_pior_cenario": pior_cenario["perfil_stress"],
+        "maior_setor_risco_pior_cenario": pior_cenario["maior_setor_risco"],
+        "maior_contribuidor_pior_cenario": pior_cenario["maior_contribuidor_risco"],
+        "hhi_carteira": hhi,
+        "numero_efetivo_ativos": numero_efetivo,
+    }])
 
     Path("output").mkdir(exist_ok=True)
 
@@ -214,13 +228,39 @@ def executar_stress_test():
         encoding="utf-8-sig"
     )
 
+    resumo_geral.to_csv(
+        Path("output/stress_test_overview.csv"),
+        index=False,
+        encoding="utf-8-sig"
+    )
+
     print("=" * 70)
-    print("STRESS TEST INSTITUCIONAL V2")
+    print("STRESS TEST INSTITUCIONAL V3")
     print("=" * 70)
 
     print()
-    print("RESUMO DO STRESS TEST:")
-    print(resumo_df)
+    print("RESUMO POR CENÁRIO:")
+    colunas_resumo = [
+        "cenario",
+        "queda_estimada_carteira_pct",
+        "risco_stress",
+        "perfil_stress",
+        "maior_contribuidor_risco",
+        "maior_setor_risco",
+        "impacto_maior_setor_pct",
+    ]
+
+    print(
+        resumo_df[colunas_resumo]
+        .to_string(index=False)
+    )
+
+    print()
+    print("PIOR CENÁRIO DA CARTEIRA:")
+    print(
+        resumo_geral
+        .to_string(index=False)
+    )
 
     print()
     print("MAIORES CONTRIBUIDORES DE RISCO:")
@@ -237,12 +277,14 @@ def executar_stress_test():
     print(
         df.sort_values("participacao_no_risco_total_pct", ascending=False)
         .head(10)[cols]
+        .to_string(index=False)
     )
 
     print()
     print("Arquivos salvos:")
     print(OUTPUT_FILE)
     print(SUMMARY_FILE)
+    print("output/stress_test_overview.csv")
 
     return df
 
