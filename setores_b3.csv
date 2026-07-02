@@ -1,6 +1,7 @@
 ticker,setor_b3,subsetor_b3,segmento_b3
 JHSF3,Construção Civil,Incorporações,Exploração de Imóveis
 CYRE3,Construção Civil,Incorporações,Incorporações
+CURY3,Construção Civil,Incorporações,Incorporações
 LAVV3,Construção Civil,Incorporações,Incorporações
 TRIS3,Construção Civil,Incorporações,Incorporações
 PETR4,"Petróleo, Gás e Biocombustíveis","Petróleo, Gás e Biocombustíveis",Exploração e/ou Refino
@@ -19,5 +20,6 @@ FIQE3,Comunicações,Telecomunicações,Telecomunicações
 RANI3,Materiais Básicos,Embalagens,Embalagens
 TGMA3,Bens Industriais,Transporte,Serviços de Apoio e Armazenagem
 POMO4,Bens Industriais,Material de Transporte,Material Rodoviário
+LEVE3,Bens Industriais,Material de Transporte,Autopeças
 WIZC3,Financeiro,Previdência e Seguros,Corretoras de Seguros
 CSUD3,Tecnologia da Informação,Programas e Serviços,Programas e Serviços
