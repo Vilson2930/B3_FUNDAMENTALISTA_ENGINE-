@@ -2,13 +2,15 @@ ticker,setor_b3,subsetor_b3,segmento_b3
 JHSF3,Construção Civil,Incorporações,Exploração de Imóveis
 CYRE3,Construção Civil,Incorporações,Incorporações
 CURY3,Construção Civil,Incorporações,Incorporações
+EZTC3,Construção Civil,Incorporações,Incorporações
 LAVV3,Construção Civil,Incorporações,Incorporações
-TRIS3,Construção Civil,Incorporações,Incorporações
 PLPL3,Construção Civil,Incorporações,Incorporações
+TRIS3,Construção Civil,Incorporações,Incorporações
 
 PETR4,"Petróleo, Gás e Biocombustíveis","Petróleo, Gás e Biocombustíveis",Exploração e/ou Refino
 RECV3,"Petróleo, Gás e Biocombustíveis","Petróleo, Gás e Biocombustíveis",Exploração e/ou Refino
 
+TAEE3,Utilidade Pública,Energia Elétrica,Energia Elétrica
 TAEE4,Utilidade Pública,Energia Elétrica,Energia Elétrica
 ISAE4,Utilidade Pública,Energia Elétrica,Energia Elétrica
 
@@ -35,5 +37,3 @@ VLID3,Bens Industriais,Serviços Diversos,Serviços Diversos
 WIZC3,Financeiro,Previdência e Seguros,Corretoras de Seguros
 
 CSUD3,Tecnologia da Informação,Programas e Serviços,Programas e Serviços
-
-MULT3,Consumo Cíclico,Comércio,Vestuário
