@@ -48,11 +48,42 @@ def ticker_yahoo(ticker):
     return f"{ticker}.SA"
 
 
+def extrair_serie_close(dados):
+    if dados is None or dados.empty:
+        return pd.Series(dtype=float)
+
+    if isinstance(dados, pd.Series):
+        return pd.to_numeric(dados, errors="coerce").dropna()
+
+    if isinstance(dados.columns, pd.MultiIndex):
+        if "Close" in dados.columns.get_level_values(0):
+            close = dados["Close"]
+        elif "Close" in dados.columns.get_level_values(-1):
+            close = dados.xs("Close", axis=1, level=-1)
+        else:
+            return pd.Series(dtype=float)
+
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
+
+        return pd.to_numeric(close, errors="coerce").dropna()
+
+    if "Close" in dados.columns:
+        close = dados["Close"]
+
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
+
+        return pd.to_numeric(close, errors="coerce").dropna()
+
+    return pd.Series(dtype=float)
+
+
 def calcular_drawdown_periodo(precos):
+    precos = extrair_serie_close(precos)
+
     if precos.empty:
         return None
-
-    precos = precos.dropna()
 
     if len(precos) < 20:
         return None
@@ -61,6 +92,9 @@ def calcular_drawdown_periodo(precos):
     drawdown = (precos / topo_acumulado) - 1
 
     pior_drawdown = drawdown.min() * 100
+
+    if pd.isna(pior_drawdown):
+        return None
 
     return float(pior_drawdown)
 
@@ -76,17 +110,11 @@ def baixar_precos(ticker, inicio, fim):
             threads=False,
         )
 
-        if dados.empty:
-            return pd.Series(dtype=float)
-
-        if "Close" in dados.columns:
-            return dados["Close"]
-
-        return pd.Series(dtype=float)
+        return dados
 
     except Exception as erro:
         print(f"Erro ao baixar {ticker}: {erro}")
-        return pd.Series(dtype=float)
+        return pd.DataFrame()
 
 
 def calcular_stress_historico_ativo(ticker):
@@ -98,9 +126,8 @@ def calcular_stress_historico_ativo(ticker):
         inicio = config["inicio"]
         fim = config["fim"]
 
-        precos = baixar_precos(ticker, inicio, fim)
-
-        drawdown = calcular_drawdown_periodo(precos)
+        dados = baixar_precos(ticker, inicio, fim)
+        drawdown = calcular_drawdown_periodo(dados)
 
         if drawdown is None:
             resultado[f"{nome_cenario}_drawdown_pct"] = None
@@ -159,7 +186,7 @@ def gerar_historical_stress():
     print(OUTPUT_FILE)
 
     print()
-    print(df_resultado)
+    print(df_resultado.to_string(index=False))
 
     return df_resultado
 
