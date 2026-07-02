@@ -4,23 +4,36 @@ CYRE3,Construção Civil,Incorporações,Incorporações
 CURY3,Construção Civil,Incorporações,Incorporações
 LAVV3,Construção Civil,Incorporações,Incorporações
 TRIS3,Construção Civil,Incorporações,Incorporações
+PLPL3,Construção Civil,Incorporações,Incorporações
+
 PETR4,"Petróleo, Gás e Biocombustíveis","Petróleo, Gás e Biocombustíveis",Exploração e/ou Refino
 RECV3,"Petróleo, Gás e Biocombustíveis","Petróleo, Gás e Biocombustíveis",Exploração e/ou Refino
+
 TAEE4,Utilidade Pública,Energia Elétrica,Energia Elétrica
 ISAE4,Utilidade Pública,Energia Elétrica,Energia Elétrica
+
 VULC3,Consumo Cíclico,"Tecidos, Vestuário e Calçados",Calçados
 AZZA3,Consumo Cíclico,Comércio,Vestuário
 TFCO4,Consumo Cíclico,Comércio,Vestuário
-GMAT3,Consumo Não Cíclico,Comércio e Distribuição,Alimentos
 SEER3,Consumo Cíclico,Serviços Educacionais,Serviços Educacionais
 CSED3,Consumo Cíclico,Serviços Educacionais,Serviços Educacionais
 VTRU3,Consumo Cíclico,Serviços Educacionais,Serviços Educacionais
+
+GMAT3,Consumo Não Cíclico,Comércio e Distribuição,Alimentos
+
 BLAU3,Saúde,Medicamentos e Outros Produtos,Medicamentos e Outros Produtos
+
 FIQE3,Comunicações,Telecomunicações,Telecomunicações
+
 RANI3,Materiais Básicos,Embalagens,Embalagens
+
 TGMA3,Bens Industriais,Transporte,Serviços de Apoio e Armazenagem
 POMO4,Bens Industriais,Material de Transporte,Material Rodoviário
 LEVE3,Bens Industriais,Material de Transporte,Autopeças
 VLID3,Bens Industriais,Serviços Diversos,Serviços Diversos
+
 WIZC3,Financeiro,Previdência e Seguros,Corretoras de Seguros
+
 CSUD3,Tecnologia da Informação,Programas e Serviços,Programas e Serviços
+
+MULT3,Consumo Cíclico,Comércio,Vestuário
