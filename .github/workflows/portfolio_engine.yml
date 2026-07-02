@@ -47,6 +47,11 @@ jobs:
         run: |
           python -c "from engine.portfolio_engine import montar_carteira; montar_carteira()"
 
+      - name: Run Correlation Engine
+        timeout-minutes: 5
+        run: |
+          python -c "from engine.correlation_engine import executar_correlation_engine; executar_correlation_engine()"
+
       - name: Run Diversification Engine
         timeout-minutes: 2
         run: |
