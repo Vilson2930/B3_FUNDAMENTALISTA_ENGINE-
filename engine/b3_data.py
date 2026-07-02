@@ -35,7 +35,6 @@ def carregar_setores_b3():
             )
 
     setores["ticker"] = setores["ticker"].astype(str).str.upper().str.strip()
-
     setores["setor_b3"] = setores["setor_b3"].astype(str).str.strip()
     setores["subsetor_b3"] = setores["subsetor_b3"].astype(str).str.strip()
     setores["segmento_b3"] = setores["segmento_b3"].astype(str).str.strip()
@@ -70,7 +69,6 @@ def carregar_empresas_b3():
         })
 
     df = pd.DataFrame(registros)
-
     df = df.dropna(subset=["ticker"])
 
     df["ticker"] = (
@@ -93,18 +91,30 @@ def carregar_empresas_b3():
         how="left"
     )
 
+    # ========================================================
+    # REGRA INSTITUCIONAL
+    # ========================================================
+    # Setor oficial vem SOMENTE do setores_b3.csv.
+    # BRAPI fica apenas como auditoria, nunca como setor final.
+    # ========================================================
+
+    tem_setor_b3 = (
+        df["setor_b3"].notna()
+        & (df["setor_b3"].astype(str).str.strip() != "")
+        & (df["setor_b3"].astype(str).str.upper() != "NAN")
+    )
+
     df["setor"] = df["setor_b3"].where(
-        df["setor_b3"].notna() & (df["setor_b3"].astype(str).str.strip() != ""),
-        df["setor_original_brapi"]
+        tem_setor_b3,
+        "NÃO CLASSIFICADO"
     )
 
-    df["setor_fonte"] = df["setor_b3"].apply(
-        lambda x: "B3_OFICIAL" if pd.notna(x) and str(x).strip() != "" else "BRAPI_FALLBACK"
+    df["setor_fonte"] = tem_setor_b3.apply(
+        lambda x: "B3_OFICIAL" if x else "SEM_CLASSIFICACAO"
     )
 
-    df["setor"] = df["setor"].fillna("Não Classificado")
-    df["subsetor_b3"] = df["subsetor_b3"].fillna("")
-    df["segmento_b3"] = df["segmento_b3"].fillna("")
+    df["subsetor_b3"] = df["subsetor_b3"].where(tem_setor_b3, "")
+    df["segmento_b3"] = df["segmento_b3"].where(tem_setor_b3, "")
 
     OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -134,7 +144,11 @@ def carregar_empresas_b3():
 
     print()
     print("VALIDAÇÃO DE SETORES PRIORITÁRIOS:")
-    tickers_teste = ["JHSF3", "CYRE3", "LAVV3", "PETR4", "SEER3", "ISAE4", "VULC3"]
+    tickers_teste = [
+        "JHSF3", "CYRE3", "CURY3", "EZTC3", "PLPL3",
+        "PETR4", "SEER3", "ISAE4", "VULC3", "MULT3", "VLID3"
+    ]
+
     cols = ["ticker", "setor_original_brapi", "setor", "setor_fonte"]
 
     print(
@@ -142,6 +156,20 @@ def carregar_empresas_b3():
         .sort_values("ticker")
         .to_string(index=False)
     )
+
+    nao_classificados = df[df["setor"] == "NÃO CLASSIFICADO"]
+
+    print()
+    print(f"ATIVOS SEM CLASSIFICAÇÃO OFICIAL: {len(nao_classificados)}")
+
+    if not nao_classificados.empty:
+        print(
+            nao_classificados[
+                ["ticker", "empresa", "setor_original_brapi"]
+            ]
+            .head(30)
+            .to_string(index=False)
+        )
 
     return df.reset_index(drop=True)
 
