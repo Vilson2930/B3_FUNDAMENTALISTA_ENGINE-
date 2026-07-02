@@ -52,8 +52,13 @@ jobs:
         run: |
           python -c "from engine.diversification import analisar_diversificacao; analisar_diversificacao()"
 
+      - name: Run Historical Stress Engine
+        timeout-minutes: 10
+        run: |
+          python -c "from engine.historical_stress import gerar_historical_stress; gerar_historical_stress()"
+
       - name: Run Stress Test
-        timeout-minutes: 2
+        timeout-minutes: 3
         run: |
           python -c "from engine.stress_test import executar_stress_test; executar_stress_test()"
 
